@@ -1,0 +1,12 @@
+from pathlib import Path
+p=Path(r'F:\H3-Music\app.py');s=p.read_text(encoding='utf-8-sig')
+s=s.replace("   elif path=='/api/bundle': result=bundle(data)","   elif path=='/api/bundle': result=bundle(data)\n   elif path=='/api/shutdown':\n    threading.Thread(target=self.server.shutdown,daemon=True).start(); result={'ok':True}")
+s=s.replace("def main():\n init();", "def main():\n (ROOT/'logs').mkdir(exist_ok=True)\n log=(ROOT/'logs/server.log').open('a',encoding='utf-8',buffering=1)\n sys.stdout=log; sys.stderr=log\n init();")
+p.write_text(s,encoding='utf-8')
+p=Path(r'F:\H3-Music\static\app.js');s=p.read_text(encoding='utf-8-sig')
+s=s.replace("function read(){if(page!=='studio')return;", "function read(){if(page!=='studio'||!$('#title'))return;")
+s=s.replace("function show(name){if(page==='studio')read();", "function show(name,readCurrent=true){if(readCurrent&&page==='studio')read();")
+s=s.replace("closeModal();show('studio')", "closeModal();show('studio',false)")
+s=s.replace("await refresh();show('studio');toast('Progetto importato')", "await refresh();show('studio',false);toast('Progetto importato')")
+p.write_text(s,encoding='utf-8')
+print('Startup and draft preservation fixed')

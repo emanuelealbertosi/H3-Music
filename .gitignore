@@ -1,0 +1,16 @@
+data/
+logs/
+models/
+runtime/
+vendor/
+__pycache__/
+*.pyc
+tests/tmp*/
+
+# Backup, impostazioni private e credenziali locali
+backups/
+.env
+.env.*
+!.env.example
+*.pem
+*.key

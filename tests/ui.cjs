@@ -1,0 +1,28 @@
+const {chromium}=require('C:/Users/emanu/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const fs=require('fs');
+(async()=>{
+ const browser=await chromium.launch({headless:true,channel:'msedge'});
+ const p=await browser.newPage({viewport:{width:1440,height:1080}});
+ const errors=[];p.on('pageerror',e=>errors.push(e.message));
+ await p.goto('http://127.0.0.1:8776');await p.locator('#title').waitFor();
+ await p.locator('#title').fill('Prima luce');
+ await p.locator('[data-preset="0"]').click();
+ await p.locator('#lyrics').fill('[Verse]\nMorning light across the floor\nI can hear the ocean call\n[Chorus]\nLet the music take us home\nWe are never on our own');
+ await p.locator('#save').click();await p.getByText('Progetto salvato',{exact:true}).first().waitFor();
+ const title=await p.locator('#title').inputValue();if(title!=='Prima luce')throw Error('Save lost title');
+ await p.screenshot({path:'F:/H3-Music/docs/studio.png',fullPage:true});
+ await p.locator('[data-page="library"]').click();await p.locator('#search').waitFor();
+ await p.locator('[data-page="queue"]').click();await p.locator('#pause').waitFor();
+ await p.locator('[data-page="system"]').click();await p.locator('#s-backend').waitFor();
+ await p.locator('[data-page="guide"]').click();await p.getByText('Comincia dal carattere del brano.').waitFor();
+ await p.locator('[data-page="studio"]').click();if(await p.locator('#title').inputValue()!=='Prima luce')throw Error('Navigation lost draft');
+ await p.locator('#score-details summary').click();
+ await p.locator('#abc').fill('X:1\nT:Test musicale\nM:4/4\nL:1/8\nQ:1/4=100\nK:C\nCDEF G2G2|AGFE D2C2|');
+ await p.locator('#score-view').click();await p.locator('#score-preview svg').first().waitFor();
+ const midi=await p.locator('#score-midi a').getAttribute('href');if(!midi.startsWith('data:audio/midi'))throw Error('MIDI unavailable: '+midi.slice(0,80));
+ await p.locator('#abc').fill('');await p.locator('#score-details summary').click();await p.locator('#save').click();
+ await p.setViewportSize({width:390,height:844});await p.screenshot({path:'F:/H3-Music/docs/mobile.png',fullPage:true});
+ if(await p.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Mobile horizontal overflow');
+ fs.writeFileSync('F:/H3-Music/logs/ui-tests.json',JSON.stringify({passed:errors.length===0,errors,checks:['save','navigation','draft retention','ABC rendering','MIDI export','mobile layout']},null,2));
+ await browser.close();if(errors.length)throw Error(errors.join('\n'));console.log('UI checks passed');
+})().catch(e=>{console.error(e);process.exit(1)});

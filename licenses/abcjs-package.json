@@ -1,0 +1,18 @@
+{
+  "name": "abcjs",
+  "version": "6.7.0",
+  "license": "MIT",
+  "dist": {
+    "shasum": "77ebb0dddf90a65c6fbeb2678db8860713842171",
+    "tarball": "https://registry.npmjs.org/abcjs/-/abcjs-6.7.0.tgz",
+    "fileCount": 175,
+    "integrity": "sha512-dSj1Iho8IvGZEbfRTcGS4uGt+DMrrXTqXXpfNXYMuUNfDMRadTqA1DlVvs3u0uUDJIej8UOAeDauEPnZ6RThmg==",
+    "signatures": [
+      {
+        "sig": "MEUCIQCTjD/E/UOblJDuA4na5EtqAl0hEUuBRGIi6v415UCRogIgQUgWurwR7yespXOB5ZruLaAC1mCcCzSWLOtSt1+E5bo=",
+        "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U"
+      }
+    ],
+    "unpackedSize": 5960230
+  }
+}

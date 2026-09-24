@@ -1,0 +1,12 @@
+[
+  {
+    "Algorithm": "SHA256",
+    "Hash": "C09034749BB7B8AC21E10DCACFFA6861F2B05C27DCF4ED58BCF3396690ADC9DD",
+    "Path": "F:\\H3-Music\\runtime\\engine\\audiocpp_cli.exe"
+  },
+  {
+    "Algorithm": "SHA256",
+    "Hash": "AB62DDAD69195C979AE9FFDB76C951B8B3718B8DC2C337DEF13012ADA57458A5",
+    "Path": "F:\\H3-Music\\H3-Music.exe"
+  }
+]
