@@ -1,6 +1,7 @@
 data/
 logs/
-models/
+models/*
+!models/manifest.json
 runtime/
 vendor/
 __pycache__/

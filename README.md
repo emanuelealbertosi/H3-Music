@@ -1,10 +1,23 @@
 # H3-Music
 
-Studio musicale locale per Windows, basato su **YuE2-3B Q8** e **audio.cpp CUDA**. Interfaccia in italiano, con gli stessi colori avorio e verde petrolio e i font Manrope/Cormorant delle altre app H3.
+Studio musicale locale per Windows, basato su **YuE2-3B Q8** e **audio.cpp**. Interfaccia in italiano, con gli stessi colori avorio e verde petrolio e i font Manrope/Cormorant delle altre app H3. In questa installazione il motore usa la **GPU CUDA**; il motore precompilato distribuito nel repository per il clone su altri PC usa la **CPU**.
 
 ## Contenuto del repository
 
-Questo repository contiene il codice dell’app, l’interfaccia, il launcher Windows, gli script, i test e la documentazione. Modelli, runtime, registrazioni, database, cache, log e backup restano esclusivamente nell’installazione locale e sono esclusi da Git. Il clone dei sorgenti non include quindi un’installazione pronta all’uso: i componenti di esecuzione vanno predisposti separatamente. Gli script di packaging e alcuni collaudi di integrazione si riferiscono all’installazione su `F:\H3-Music` descritta in questa documentazione.
+Questo repository contiene il codice dell’app, l’interfaccia, il launcher Windows, gli script, i test e la documentazione, oltre al motore audio.cpp precompilato per CPU (`dist/h3-engine-cpu-win64.zip`) e il manifest dei pesi YuE2. I modelli pesanti, i runtime, le registrazioni, il database, le cache, i log e i backup restano esclusi da Git: un clone non è ancora un’installazione pronta all’uso, ma `install.bat` la completa scaricando i componenti mancanti (vedi sotto). Gli script di packaging e alcuni collaudi di integrazione si riferiscono all’installazione su `F:\H3-Music` descritta in questa documentazione.
+
+## Installazione da GitHub (clone)
+
+Su un PC Windows x64 senza GPU dedicata:
+
+1. `git clone https://github.com/emanuelealbertosi/H3-Music.git`
+2. Nella cartella del clone, esegui `install.bat` (oppure `powershell -ExecutionPolicy Bypass -File install.ps1`).
+
+L’installatore non richiede compilatori né Visual Studio: estrae il motore audio.cpp precompilato per CPU da `dist/`, scarica Python incorporato 3.12, FFmpeg, i pesi YuE2 (circa 4,5 GB) e il runtime di trascrizione con torch CPU (SheetSage2 + MERT-v2, circa 3 GB), imposta `backend=cpu` nel database e avvia il server su `127.0.0.1:8776`. Servono circa 15 GB di spazio libero e una connessione internet; i download sono riprendibili se interrotti.
+
+Al termine apri **H3-Music.exe** (o `Avvia-H3-Music.bat`): la finestra app si apre sull’app già attiva. La generazione funziona interamente su CPU: le sintesi richiedono più tempo che sulla GPU e il numero di thread è regolabile nelle impostazioni.
+
+Il motore CPU precompilato richiede un processore x64 con **AVX2, FMA, F16C e BMI2** (Intel Haswell 2013 o successivi, AMD Excavator/Zen o successivi). L’installatore è ripetibile: ogni passo salta ciò che è già presente, quindi si può rilanciare `install.bat` dopo un’interruzione senza riscaricare tutto.
 
 ## Avvio
 
@@ -52,7 +65,7 @@ La trascrizione e YuE2 condividono la coda: viene eseguito un solo modello alla 
 
 ## Limiti effettivi
 
-La versione YuE2 di audio.cpp è sul ramo `dev`: il supporto è recente e sperimentale. Questa build è compilata per la RTX 5070 Ti, architettura CUDA 120, e usa i pesi Q8_0 con VAE F16.
+La versione YuE2 di audio.cpp è sul ramo `dev`: il supporto è recente e sperimentale. La build locale è compilata per la RTX 5070 Ti, architettura CUDA 120, e usa i pesi Q8_0 con VAE F16. Il repository include anche una build CPU precompilata (`dist/h3-engine-cpu-win64.zip`) usata dall’installatore: funziona su qualsiasi PC x64, con o senza GPU.
 
 Il modello dichiara principalmente inglese e cinese; l’italiano è sperimentale. Le impostazioni di tempo e durata nello stile sono indicazioni, non vincoli esatti. Il limite di token può troncare il risultato: H3-Music evidenzia questo stato senza presentarlo come una canzone completa.
 

@@ -11,3 +11,9 @@
 licenses/** -text
 static/score-assets/** -text
 docs/*.patch -text
+
+# Binari distribuiti: mai normalizzare (lo zip del motore deve restare identico)
+dist/** -text
+*.zip -text
+*.exe -text
+*.dll -text
