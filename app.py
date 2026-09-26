@@ -111,6 +111,11 @@ def get_job(ident,detail=False):
   if progress.exists():
    try: j['progress']=json.loads(progress.read_text(encoding='utf-8'))
    except (OSError,json.JSONDecodeError): pass
+ if 'progress' not in j:
+  progress=OUT/ident/'progress.json'
+  if progress.exists():
+   try: j['progress']=json.loads(progress.read_text(encoding='utf-8'))
+   except (OSError,json.JSONDecodeError): pass
  return j
 
 def system_memory():
@@ -185,6 +190,28 @@ def main_model_file():
   if name in installed or (MODEL/name).exists(): return name
  return wanted
 
+STAGES=(('yue2.vae.','Finalizzazione',95),('yue2.nar.','Sintesi audio',55),('yue2.semantic.','Composizione',8),('yue2.ar.','Composizione',8),('yue2.plan.','Preparazione',2))
+def engine_progress(d,started,backend):
+ """Fase del motore e avanzamento stimato, ricavati dal suo registro.
+
+ Il motore segnala solo i confini di fase: la percentuale dentro la fase e' una
+ stima basata sul tempo, mentre i passaggi di fase sono esatti.
+ """
+ log=d/'engine.log'
+ name,pct='Avvio',1
+ if log.exists():
+  try: tail=log.read_text(encoding='utf-8',errors='replace')[-40000:]
+  except OSError: tail=''
+  for marker,label,value in STAGES:
+   if marker in tail: name,pct=label,value; break
+ elapsed=max(0.0,time.time()-started)
+ if name=='Sintesi audio': lo,hi,typical=55,95,2400 if backend=='cpu' else 60
+ elif name=='Composizione': lo,hi,typical=8,55,420 if backend=='cpu' else 25
+ elif name=='Finalizzazione': lo,hi,typical=95,99,60 if backend=='cpu' else 15
+ else: lo,hi,typical=pct,pct,0
+ if typical: pct=min(hi,lo+int((hi-lo)*min(1.0,elapsed/typical)))
+ return {'stage':name,'pct':int(pct),'elapsed_s':int(elapsed)}
+
 def command_for(job,d):
  if job['kind']=='transcribe': return transcription.command(APP,job,d)
  req=job['request']; opts=req['options']|{'style':req['style'],'cot':req['cot'],'seed':str(req['seed']),'h3_artifact_dir':str(d),'h3_plan_only':'true' if job['kind']=='plan' else 'false'}
@@ -251,12 +278,24 @@ def worker():
    db("UPDATE jobs SET status='running',started=? WHERE id=?",(now(),ident))
   try:
    args=command_for(job,d)
+   started=time.time()
    with (d/'engine.log').open('wb') as log:
     with LOCK:
      if db('SELECT status FROM jobs WHERE id=?',(ident,),True)['status']=='cancelled': continue
      p=subprocess.Popen(args,cwd=ROOT,stdout=log,stderr=subprocess.STDOUT,creationflags=HIDDEN)
      ACTIVE[ident]=p
+    # Avanzamento: per la trascrizione lo scrive il suo worker, per la
+    # generazione lo ricaviamo qui dal registro del motore.
+    if job['kind']!='transcribe':
+     backend=settings()['backend']; progress_file=d/'progress.json'
+     while p.poll() is None:
+      time.sleep(3)
+      try: progress_file.write_text(jdump(engine_progress(d,started,backend)),encoding='utf-8')
+      except Exception: pass
     rc=p.wait()
+   if job['kind']!='transcribe':
+    try: (d/'progress.json').unlink()
+    except OSError: pass
    with LOCK:
     ACTIVE.pop(ident,None)
     status=db('SELECT status FROM jobs WHERE id=?',(ident,),True)['status']
@@ -269,7 +308,10 @@ def worker():
      tail=(d/'engine.log').read_text(encoding='utf-8',errors='replace')[-4000:] if (d/'engine.log').exists() else ''
      if 'failed to allocate' in tail or 'GGML_ASSERT' in tail:
       mem=system_memory()
-      reason='Memoria insufficiente: il motore non ha potuto prenotare la memoria che gli serve%s. Chiudi le altre applicazioni, aumenta il file di paging di Windows (Impostazioni di sistema > Prestazioni > Avanzate > Memoria virtuale) oppure scegli il modello Q4 in Preferenze: occupa 2,5 GB invece di 4.'%(' (limite attuale %.0f GB)'%mem['commit_limit_gb'] if mem.get('commit_limit_gb') else '')
+      if 'cudaMalloc' in tail or 'CUDA0 buffer' in tail or 'device 0' in tail:
+       reason='Memoria video insufficiente: la scheda non ha spazio per il grafo del motore. Chiudi le altre applicazioni che usano la GPU (o scegli backend CPU in Preferenze) e riprova.'
+      else:
+       reason='Memoria insufficiente: il motore non ha potuto prenotare la memoria che gli serve%s. Chiudi le altre applicazioni, aumenta il file di paging di Windows (Impostazioni di sistema > Prestazioni > Avanzate > Memoria virtuale) oppure scegli il modello Q4 in Preferenze: occupa 2,5 GB invece di 4.'%(' (limite attuale %.0f GB)'%mem['commit_limit_gb'] if mem.get('commit_limit_gb') else '')
     raise RuntimeError(reason or f'Il motore si è fermato (codice {rc}). Apri il registro per i dettagli.')
    result=finish_artifacts(job,d)
    db("UPDATE jobs SET status='completed',finished=?,result=? WHERE id=?",(now(),jdump(result),ident))
