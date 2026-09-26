@@ -4,7 +4,34 @@ Stima e piano, da approvare prima di implementare. Obiettivo: dare a una canzone
 composta da YuE2 una voce scelta dall'utente, a partire da un **campione parlato**
 di riferimento; il risultato finale è **cantato**.
 
-## 0. Decisioni prese
+## 0. Stato di avanzamento
+
+- **Fase 1 — separazione: fatta.** HTDemucs (59 MB) nel repository con revisione
+  fissata e SHA-256; nuovo lavoro `sep` nell'app con pulsante «Separa voce e
+  base»; l'installer scarica il modello. Verificato col motore CPU: 30 s di audio
+  separati in 37 s (rtf 1,24).
+- **Fase 2 — conversione: motore e app fatti.** SeedVC (2,98 GB) scaricato e
+  verificato; comando `--task svc --family seed_vc --audio <voce separata>
+  --voice-ref <campione parlato> --out <file>`. Verificato col motore CPU: la
+  catena gira (content, style, f0, length regulator, diffusione, vocoder) e
+  scrive il file. Libreria voci in `data/voci/<nome>/` e nuovo lavoro `voice`
+  nell'app, con scelta della voce da una finestra.
+- **Fase 3 — rimix: fatta.** La voce convertita (mono) viene unita alla base
+  strumentale (batteria, basso, altro) con FFmpeg in un `audio.wav` stereo;
+  verificato con la funzione dell'app.
+- **Fase 4 — collaudo: da completare** sulla macchina di destinazione.
+
+**Attenzione ai tempi su CPU**: la conversione SeedVC è la parte pesante, circa
+20-60 volte la durata dell'audio (un brano di 3 minuti richiede da una a tre ore
+su CPU). La separazione invece è rapida (circa 1,2 volte). Su GPU entrambe sono
+molto più veloci. Il flusso completo, quindi, è pratico sulla macchina con GPU;
+su quella solo CPU conviene usarlo su frammenti brevi.
+
+**Nota sul motore**: servono entrambe le famiglie (`htdemucs`, `seed_vc`). Il
+motore CPU distribuito le include ed è quello con cui sono state fatte le prove.
+Un motore CUDA compilato in precedenza con un insieme di modelli più ristretto
+potrebbe non averle: in quel caso ricompila con `scripts/build_engine_cuda.ps1`.
+
 
 - Il campione di riferimento è **voce parlata** (10-30 secondi, puliti).
 - Il risultato è **cantato**: la voce del brano generato viene convertita.

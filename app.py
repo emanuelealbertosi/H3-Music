@@ -156,7 +156,7 @@ def ready():
  missing=[n for n,size in required.items() if not (MODEL/n).exists() or (MODEL/n).stat().st_size!=size]
  main=[n for n in required if n.startswith('yue2-3b-') and n.endswith('.gguf')]
  if len(main)>1 and any(n not in missing for n in main): missing=[n for n in missing if n not in main]
- return {'ready':ENGINE.exists() and not missing,'engine':ENGINE.exists(),'missing':missing,'ffmpeg':FFMPEG.exists(),'sep':bool(separation_model()),'model':'YuE2-3B · %s / VAE F16' % ('Q4_0' if main_model_file().startswith('yue2-3b-q4') else 'Q8_0'),'root':str(ROOT),'transcription':transcription.status(ROOT)}
+ return {'ready':ENGINE.exists() and not missing,'engine':ENGINE.exists(),'missing':missing,'ffmpeg':FFMPEG.exists(),'sep':bool(separation_model()),'voice':bool(voice_model()),'voices':len(voice_list()),'model':'YuE2-3B · %s / VAE F16' % ('Q4_0' if main_model_file().startswith('yue2-3b-q4') else 'Q8_0'),'root':str(ROOT),'transcription':transcription.status(ROOT)}
 
 TOOLS=ROOT/'models/tools'
 def separation_model():
@@ -184,9 +184,62 @@ def enqueue_separation(data):
  db('INSERT INTO jobs(id,project_id,kind,status,request,created) VALUES(?,?,?,?,?,?)',(new,pid,'sep','queued',jdump(req),now()))
  WAKE.set(); return {'ids':[new]}
 
+VOCI=DATA/'voci'
+def voice_model():
+ """Cartella del modello di conversione vocale (SeedVC), se installato."""
+ d=TOOLS/'SeedVC-MLX-GGUF'
+ return d if d.exists() and any(d.glob('*.gguf')) else None
+
+def voice_list():
+ """Voci di riferimento disponibili: data/voci/<nome>/<campione audio>."""
+ out=[]
+ if VOCI.exists():
+  for d in sorted(VOCI.iterdir()):
+   if not d.is_dir(): continue
+   samples=[p for p in sorted(d.iterdir()) if p.suffix.lower() in ('.wav','.mp3','.flac','.ogg','.m4a')]
+   if samples: out.append({'name':d.name,'file':samples[0].name,'bytes':samples[0].stat().st_size})
+ return out
+
+def voice_sample(name):
+ for v in voice_list():
+  if v['name']==name: return VOCI/v['name']/v['file']
+ return None
+
+def enqueue_voice(data):
+ """Accoda la conversione della voce cantata verso una voce di riferimento."""
+ if not ENGINE.exists(): raise ValueError('Il motore non è installato.')
+ if not voice_model(): raise ValueError('Il modello di conversione vocale non è installato: esegui scripts/download_tools.py --tool voice.')
+ ref=voice_sample(str(data.get('voice') or ''))
+ if not ref: raise ValueError('Scegli una voce: metti un campione parlato in data/voci/<nome>/ (wav, mp3 o flac).')
+ ident=str(data.get('source_id') or '')
+ if not (OUT/ident/'vocals.wav').exists(): raise ValueError('Prima separa il brano: serve la traccia voce.')
+ title='Brano'
+ try: title=get_job(ident)['request'].get('title') or title
+ except ValueError: pass
+ req={'title':title+' · voce '+ref.parent.name,'style':'','lyrics':'','abc':'','notes':'','seed':0,'options':{},'source_id':ident,'voice':ref.parent.name}
+ new=uid()
+ db('INSERT INTO jobs(id,project_id,kind,status,request,created) VALUES(?,?,?,?,?,?)',(new,'','voice','queued',jdump(req),now()))
+ WAKE.set(); return {'ids':[new]}
+
+def mix_voice(job,d,converted):
+ """Unisce la voce convertita alla base strumentale del brano separato."""
+ src=OUT/job['request'].get('source_id','')
+ base=[src/n for n in ('drums.wav','bass.wav','other.wav') if (src/n).exists()]
+ out=d/'audio.wav'
+ args=[str(FFMPEG),'-y','-v','error','-i',str(converted)]+[a for b in base for a in ('-i',str(b))]
+ if base:
+  parts=''.join('[%d:a]aformat=channel_layouts=stereo[a%d];'%(i,i) for i in range(len(base)+1))
+  mix=''.join('[a%d]'%i for i in range(len(base)+1))+'amix=inputs=%d:duration=longest:normalize=0'%(len(base)+1)
+  args+=['-filter_complex',parts+mix]
+ args+=['-ar','48000','-ac','2',str(out)]
+ r=run_capture(args,600)
+ if r.returncode or not out.exists(): raise RuntimeError('Il rimissaggio non è riuscito: '+(r.stderr or '')[-300:])
+ return out
+
 def enqueue(data):
  if data.get('kind')=='transcribe': return transcription.enqueue(APP,data)
  if data.get('kind')=='sep': return enqueue_separation(data)
+ if data.get('kind')=='voice': return enqueue_voice(data)
  if not ready()['ready']: raise ValueError('Il motore o i modelli non sono pronti. Vedi Sistema.')
  pid=data.get('project_id'); p=db('SELECT * FROM projects WHERE id=?',(pid,),True)
  if not p: raise ValueError('Salva prima il progetto.')
@@ -242,6 +295,9 @@ def engine_progress(d,started,backend):
 
 def command_for(job,d):
  if job['kind']=='transcribe': return transcription.command(APP,job,d)
+ if job['kind']=='voice':
+  s=settings(); r=job['request']
+  return [str(ENGINE),'--task','svc','--family','seed_vc','--model',str(voice_model()),'--backend',s['backend'],'--threads',str(s['threads']),'--audio',str(OUT/r.get('source_id','')/'vocals.wav'),'--voice-ref',str(voice_sample(r.get('voice'))),'--out',str(d/'voce.wav'),'--log','--metrics']
  if job['kind']=='sep':
   s=settings()
   return [str(ENGINE),'--task','sep','--family','htdemucs','--model',str(separation_model()),'--backend',s['backend'],'--threads',str(s['threads']),'--audio',str(source_audio(job['request'].get('source_id'))),'--out-dir',str(d),'--log','--metrics']
@@ -281,6 +337,13 @@ def audio_info(path):
 
 def finish_artifacts(job,d):
  if job['kind']=='transcribe': return transcription.finish(APP,job,d)
+ if job['kind']=='voice':
+  converted=d/'voce.wav'
+  if not converted.exists() or converted.stat().st_size<100: raise RuntimeError('La conversione non ha prodotto audio utilizzabile.')
+  final=mix_voice(job,d,converted)
+  try: dur=audio_info(final).get('duration',0)
+  except Exception: dur=0
+  return {'voice':job['request'].get('voice',''),'source_id':job['request'].get('source_id',''),'duration':dur}
  if job['kind']=='sep':
   stems=[n for n in ('vocals.wav','drums.wav','bass.wav','other.wav') if (d/n).exists()]
   if not stems: raise RuntimeError('La separazione non ha prodotto file utilizzabili.')
@@ -476,6 +539,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     except Exception: cuda={}
     motore='CUDA' if settings()['backend']=='cuda' else 'CPU'
     return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.1.0','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
+   if path=='/api/voices': return self.json_response({'voices':voice_list(),'model':bool(voice_model())})
    if path=='/api/imports': return self.json_response({'sources':transcription.list_sources(DATA)})
    if re.fullmatch('/imports/[a-f0-9]{32}/audio',path):
     source,_=transcription.source(DATA,path.split('/')[2]); return self.file_response(source)
