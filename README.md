@@ -21,6 +21,16 @@ Il motore CPU precompilato richiede un processore x64 con **AVX2, FMA, F16C e BM
 
 La generazione su CPU riserva molta memoria di sistema: il motore prealloca le arene dei grafi (circa 20 GB nel picco di una generazione completa, oltre ai pesi). Sono consigliati **32 GB di RAM**; con 16 GB conviene chiudere le altre applicazioni e lasciare il file di paging gestito da Windows. Come riferimento, su un Ryzen 5 3600 (6 core, 8 thread) la sola pianificazione di un brano richiede circa 7 minuti; la sintesi audio completa è sensibilmente più lunga.
 
+### Generazione con la GPU (facoltativa)
+
+Con una scheda **NVIDIA** la generazione è molto più rapida (riferimento sulla stessa macchina: 0,3-2,5 minuti per un brano completo contro oltre 7 minuti per la sola pianificazione su CPU) e i pesi stanno nella memoria video, quindi il fabbisogno di RAM di sistema scende. Il motore CUDA è compilato **sulla macchina di destinazione**, così il binario corrisponde all’architettura della scheda installata e resta valido anche se la cambi.
+
+Al termine dell’installazione `install.ps1` verifica se ci sono gli strumenti necessari — GPU NVIDIA con driver, Visual Studio 2022 Build Tools con «Desktop development with C++», CUDA Toolkit 12.x — e, se ci sono, avvia la compilazione (20-60 minuti, interrompibile). Se manca qualcosa lo segnala e indica il comando da lanciare in seguito:
+
+`powershell -ExecutionPolicy Bypass -File scripts\build_engine_cuda.ps1`
+
+Lo script scarica il sorgente di audio.cpp al commit fissato, applica la patch H3, compila, verifica che il motore elenchi un dispositivo CUDA e sostituisce quello in `runtime/engine` (il motore CPU viene conservato in `runtime/engine-cpu`), quindi imposta `backend=cuda`. Per tornare alla CPU: `build_engine_cuda.ps1 -Revert`. Il backend si può cambiare anche dalle preferenze dell’app, senza reinstallare nulla.
+
 ## Avvio
 
 Apri il collegamento **H3-Music** sul desktop oppure `F:\H3-Music\H3-Music.exe`. Il launcher apre una finestra app di Microsoft Edge e avvia il servizio esclusivamente su `127.0.0.1:8776`. Se è già attivo, riusa il servizio. Il runtime Python e FFmpeg sono inclusi nella cartella; ComfyUI non è necessario.

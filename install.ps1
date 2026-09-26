@@ -4,7 +4,7 @@
 # FFmpeg, i modelli YuE2 e il runtime di trascrizione (torch CPU), estrae il
 # motore audio.cpp precompilato da dist/, imposta backend=cpu e avvia il server.
 
-param([switch]$DryRun)
+param([switch]$DryRun, [switch]$SkipGpuBuild)
 
 $ErrorActionPreference = 'Stop'
 # TLS 1.2 sempre; TLS 1.3 solo se il .NET Framework installato lo conosce.
@@ -16,7 +16,7 @@ Set-Location $root
 
 function Write-Step([int]$n, [string]$text) {
   Write-Host ''
-  Write-Host "[$n/7] $text" -ForegroundColor Cyan
+  Write-Host "[$n/8] $text" -ForegroundColor Cyan
 }
 
 function Get-Text([string]$url) {
@@ -213,3 +213,60 @@ Write-Host ''
 Write-Host 'INSTALLAZIONE COMPLETATA' -ForegroundColor Green
 Write-Host '  Server attivo: http://127.0.0.1:8776'
 Write-Host '  Per aprire l''app: H3-Music.exe (o Avvia-H3-Music.bat)'
+
+# ---------- 8. Motore GPU (facoltativo) ----------
+Write-Step 8 'Motore GPU (facoltativo)'
+$gpuName = ''
+try { $gpuName = (& nvidia-smi --query-gpu=name --format=csv,noheader 2>$null | Select-Object -First 1) } catch {}
+$cudaRoot = $env:CUDA_PATH
+if (-not $cudaRoot -or -not (Test-Path (Join-Path $cudaRoot 'bin\nvcc.exe'))) {
+  $cudaBase = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA'
+  $cudaRoot = (Get-ChildItem $cudaBase -Directory -ErrorAction SilentlyContinue |
+    Where-Object { Test-Path (Join-Path $_.FullName 'bin\nvcc.exe') } |
+    Sort-Object Name | Select-Object -Last 1).FullName
+}
+$vsFound = ''
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+if (Test-Path $vswhere) {
+  $vsFound = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null | Select-Object -First 1)
+}
+if (-not $vsFound) {
+  foreach ($base in @(${env:ProgramFiles(x86)}, ${env:ProgramFiles})) {
+    foreach ($edition in @('BuildTools', 'Community', 'Professional', 'Enterprise')) {
+      $p = Join-Path $base "Microsoft Visual Studio\2022\$edition"
+      if (-not $vsFound -and (Test-Path (Join-Path $p 'VC\Auxiliary\Build\vcvarsall.bat'))) { $vsFound = $p }
+    }
+  }
+}
+
+if ($gpuName) { Write-Host "  GPU NVIDIA: $gpuName" } else { Write-Host '  GPU NVIDIA: non rilevata' }
+if ($cudaRoot) { Write-Host "  CUDA Toolkit: $cudaRoot" } else { Write-Host '  CUDA Toolkit: assente' }
+if ($vsFound) { Write-Host "  Visual Studio C++: $vsFound" } else { Write-Host '  Visual Studio C++: assente' }
+
+$gpuScript = "$root\scripts\build_engine_cuda.ps1"
+if ($SkipGpuBuild) {
+  Write-Host '  Build GPU saltata (-SkipGpuBuild).'
+} elseif ($gpuName -and $cudaRoot -and $vsFound) {
+  Write-Host ''
+  Write-Host '  Tutti gli strumenti ci sono: compilo il motore CUDA per questa scheda.' -ForegroundColor Green
+  Write-Host '  La compilazione puo durare da 20 a 60 minuti e usa la CPU; puoi interromperla con Ctrl+C.' -ForegroundColor DarkYellow
+  Write-Host '  L app intanto e gia funzionante con il motore CPU.' -ForegroundColor DarkYellow
+  Write-Host ''
+  & powershell -NoProfile -ExecutionPolicy Bypass -File $gpuScript
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host ''
+    Write-Host '  Build GPU non riuscita: l app resta pienamente funzionante su CPU.' -ForegroundColor Yellow
+    Write-Host '  Puoi riprovare quando vuoi con: powershell -ExecutionPolicy Bypass -File scripts\build_engine_cuda.ps1' -ForegroundColor Yellow
+  }
+} else {
+  Write-Host ''
+  Write-Host '  Il motore CPU e attivo e l app funziona: la GPU e solo un miglioramento.' -ForegroundColor DarkYellow
+  Write-Host '  Per generare con la scheda NVIDIA servono:' -ForegroundColor DarkYellow
+  if (-not $gpuName) { Write-Host '    - una GPU NVIDIA con driver aggiornato' -ForegroundColor DarkYellow }
+  if (-not $vsFound) { Write-Host '    - Visual Studio 2022 Build Tools con "Desktop development with C++"' -ForegroundColor DarkYellow }
+  if (-not $cudaRoot) { Write-Host '    - NVIDIA CUDA Toolkit 12.x: https://developer.nvidia.com/cuda-downloads' -ForegroundColor DarkYellow }
+  Write-Host '  Quando ci sono, da questa cartella lancia:' -ForegroundColor DarkYellow
+  Write-Host '    powershell -ExecutionPolicy Bypass -File scripts\build_engine_cuda.ps1' -ForegroundColor White
+  Write-Host '  Non serve reinstallare nulla: lo script compila e passa da solo al backend cuda.' -ForegroundColor DarkYellow
+}
+
