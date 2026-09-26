@@ -159,6 +159,16 @@ def ready():
  return {'ready':ENGINE.exists() and not missing,'engine':ENGINE.exists(),'missing':missing,'ffmpeg':FFMPEG.exists(),'sep':bool(separation_model()),'voice':bool(voice_model()),'voices':len(voice_list()),'model':'YuE2-3B · %s / VAE F16' % ('Q4_0' if main_model_file().startswith('yue2-3b-q4') else 'Q8_0'),'root':str(ROOT),'transcription':transcription.status(ROOT)}
 
 TOOLS=ROOT/'models/tools'
+def normalize_audio(src,dst,rate=44100,channels=2):
+ """Ricampiona un audio col formato atteso dai modelli ausiliari.
+
+ I brani generati sono a 48 kHz, mentre HTDemucs e SeedVC lavorano a 44,1 kHz:
+ senza questo passaggio la separazione si ferma con 'sample rate mismatch'.
+ """
+ r=run_capture([str(FFMPEG),'-y','-v','error','-i',str(src),'-ar',str(rate),'-ac',str(channels),str(dst)],600)
+ if r.returncode or not dst.exists(): raise RuntimeError('Preparazione audio non riuscita: '+(r.stderr or '')[-300:])
+ return dst
+
 def separation_model():
  """Cartella del modello di separazione (HTDemucs), se installato."""
  d=TOOLS/'HTDemucs-GGUF'
@@ -300,7 +310,8 @@ def command_for(job,d):
   return [str(ENGINE),'--task','svc','--family','seed_vc','--model',str(voice_model()),'--backend',s['backend'],'--threads',str(s['threads']),'--audio',str(OUT/r.get('source_id','')/'vocals.wav'),'--voice-ref',str(voice_sample(r.get('voice'))),'--out',str(d/'voce.wav'),'--log','--metrics']
  if job['kind']=='sep':
   s=settings()
-  return [str(ENGINE),'--task','sep','--family','htdemucs','--model',str(separation_model()),'--backend',s['backend'],'--threads',str(s['threads']),'--audio',str(source_audio(job['request'].get('source_id'))),'--out-dir',str(d),'--log','--metrics']
+  inp=normalize_audio(source_audio(job['request'].get('source_id')),d/'input.wav')
+  return [str(ENGINE),'--task','sep','--family','htdemucs','--model',str(separation_model()),'--backend',s['backend'],'--threads',str(s['threads']),'--audio',str(inp),'--out-dir',str(d),'--log','--metrics']
  req=job['request']; opts=req['options']|{'style':req['style'],'cot':req['cot'],'seed':str(req['seed']),'h3_artifact_dir':str(d),'h3_plan_only':'true' if job['kind']=='plan' else 'false'}
  if req['abc']:
   (d/'input.abc').write_text(req['abc'],encoding='utf-8'); opts['abc_file']=str(d/'input.abc')
