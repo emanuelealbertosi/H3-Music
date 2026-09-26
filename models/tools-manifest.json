@@ -1,0 +1,25 @@
+{
+ "repo": "audio-cpp/audio.cpp-gguf",
+ "revision": "0a104324546d2622985e3c676a4b5550cc772127",
+ "note": "Pesi dei modelli ausiliari (separazione e conversione vocale), non della generazione musicale. Revisione fissata: il repository a monte cambia.",
+ "tools": [
+  {
+   "id": "sep",
+   "family": "htdemucs",
+   "directory": "HTDemucs-GGUF",
+   "file": "htdemucs-q8_0.gguf",
+   "size": 61940768,
+   "sha256": "b0f532ac6e5f373aeb11fa0df73253251e133832d9c8b9942dc58f50bc5b4388",
+   "description": "Separazione del brano in voce, batteria, basso e altro"
+  },
+  {
+   "id": "voice",
+   "family": "seed_vc",
+   "directory": "SeedVC-MLX-GGUF",
+   "file": "seed-vc-mlx-q8_0.gguf",
+   "size": 3120809248,
+   "sha256": "d4a1ecf951cb7c2ebb55347a174a286a3b23825d58f8835707d21d754762ca7f",
+   "description": "Conversione della voce cantata verso una voce di riferimento (zero-shot)"
+  }
+ ]
+}
