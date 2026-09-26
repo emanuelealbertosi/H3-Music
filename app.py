@@ -113,6 +113,32 @@ def get_job(ident,detail=False):
    except (OSError,json.JSONDecodeError): pass
  return j
 
+def system_memory():
+ """Memoria fisica e limite di commit (RAM + file di paging)."""
+ try:
+  import ctypes
+  class M(ctypes.Structure):
+   _fields_=[('dwLength',ctypes.c_ulong),('dwMemoryLoad',ctypes.c_ulong),('ullTotalPhys',ctypes.c_ulonglong),('ullAvailPhys',ctypes.c_ulonglong),('ullTotalPageFile',ctypes.c_ulonglong),('ullAvailPageFile',ctypes.c_ulonglong),('ullTotalVirtual',ctypes.c_ulonglong),('ullAvailVirtual',ctypes.c_ulonglong),('ullAvailExtendedVirtual',ctypes.c_ulonglong)]
+  st=M(); st.dwLength=ctypes.sizeof(st)
+  if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st)): return {}
+  gb=lambda v: round(v/2**30,1)
+  return {'total_gb':gb(st.ullTotalPhys),'avail_gb':gb(st.ullAvailPhys),'commit_limit_gb':gb(st.ullTotalPageFile),'commit_avail_gb':gb(st.ullAvailPageFile)}
+ except Exception: return {}
+
+def memory_profile():
+ """Opzioni di sessione per il motore in base alla memoria disponibile.
+
+ Il motore riserva le arene dei grafi (pesi, prefill, decode, NAR, VAE): sui PC
+ con poca memoria o con un file di paging piccolo quelle prenotazioni non ci
+ stanno e la generazione fallisce con 'failed to allocate'. Qui le riduciamo
+ quando serve; su una macchina con memoria abbondante restano i valori del
+ motore.
+ """
+ mem=system_memory(); free=mem.get('commit_avail_gb')
+ if not free or free>=30: return {}
+ if free>=20: return {'yue2.ar_prefill_graph_arena_mb':'3072','yue2.ar_decode_graph_arena_mb':'1024'}
+ return {'yue2.ar_prefill_graph_arena_mb':'2048','yue2.ar_decode_graph_arena_mb':'1024','yue2.nar_graph_arena_mb':'4096','yue2.vae_graph_arena_mb':'1024','yue2.vae_weight_context_mb':'1024'}
+
 def ready():
  required={'yue2-3b-q8_0.gguf':4264186432,'yue2-vae-f16.gguf':265218656,'sidecars/yue2-qwen.tiktoken':2561218,'sidecars/yue2-model-config.json':959,'sidecars/yue2-generation-config.json':466,'sidecars/yue2-vae-config.json':1378}
  record=ROOT/'models/installed-models.json'
@@ -167,7 +193,9 @@ def command_for(job,d):
  write_json(d/'request.json',req)
  write_json(d/'engine-request.json',[{'id':'audio','text':req['lyrics'],'options':opts}])
  s=settings()
- return [str(ENGINE),'--task','gen','--family','yue2','--model',str(MODEL),'--backend',s['backend'],'--threads',str(s['threads']),'--session-option','yue2.model_gguf='+main_model_file(),'--request-sequence',str(d/'engine-request.json'),'--out-dir',str(d),'--log','--metrics']
+ cmd=[str(ENGINE),'--task','gen','--family','yue2','--model',str(MODEL),'--backend',s['backend'],'--threads',str(s['threads']),'--session-option','yue2.model_gguf='+main_model_file()]
+ for k,v in memory_profile().items(): cmd+=[ '--session-option','%s=%s'%(k,v)]
+ return cmd+['--request-sequence',str(d/'engine-request.json'),'--out-dir',str(d),'--log','--metrics']
 
 def decode_score(d):
  p=d/'abc_tokens.i32'
@@ -237,6 +265,11 @@ def worker():
    if rc:
     progress=d/'progress.json'
     reason=json.loads(progress.read_text(encoding='utf-8')).get('message','') if job['kind']=='transcribe' and progress.exists() else ''
+    if not reason:
+     tail=(d/'engine.log').read_text(encoding='utf-8',errors='replace')[-4000:] if (d/'engine.log').exists() else ''
+     if 'failed to allocate' in tail or 'GGML_ASSERT' in tail:
+      mem=system_memory()
+      reason='Memoria insufficiente: il motore non ha potuto prenotare la memoria che gli serve%s. Chiudi le altre applicazioni, aumenta il file di paging di Windows (Impostazioni di sistema > Prestazioni > Avanzate > Memoria virtuale) oppure scegli il modello Q4 in Preferenze: occupa 2,5 GB invece di 4.'%(' (limite attuale %.0f GB)'%mem['commit_limit_gb'] if mem.get('commit_limit_gb') else '')
     raise RuntimeError(reason or f'Il motore si è fermato (codice {rc}). Apri il registro per i dettagli.')
    result=finish_artifacts(job,d)
    db("UPDATE jobs SET status='completed',finished=?,result=? WHERE id=?",(now(),jdump(result),ident))
@@ -361,7 +394,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
      cuda=json.loads(run_capture([str(ROOT/'runtime/python/python.exe'),str(ROOT/'scripts/gpu_info.py')],15).stdout or '{}')
     except Exception: cuda={}
     motore='CUDA' if settings()['backend']=='cuda' else 'CPU'
-    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.1.0','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
+    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.1.0','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
    if path=='/api/imports': return self.json_response({'sources':transcription.list_sources(DATA)})
    if re.fullmatch('/imports/[a-f0-9]{32}/audio',path):
     source,_=transcription.source(DATA,path.split('/')[2]); return self.file_response(source)
