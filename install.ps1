@@ -125,7 +125,8 @@ if (-not (Test-Path "$pydir\python.exe")) {
   Expand-Zip "$root\runtime\python-embed.zip" $pydir
   Remove-Item -Force "$root\runtime\python-embed.zip"
 }
-& "$pydir\python.exe" -c "import sys; print(' ', sys.version.split()[0])"
+& "$pydir\python.exe" -c "import sys, sqlite3, ssl; print(' ', sys.version.split()[0], '- sqlite3 e ssl ok')"
+if ($LASTEXITCODE -ne 0) { throw 'Il Python incorporato non si avvia correttamente. Scarica di nuovo il runtime (cancella runtime\python) e riprova.' }
 
 # ---------- 3. FFmpeg ----------
 Write-Step 3 'FFmpeg'
@@ -161,6 +162,30 @@ Run-Python "$root\scripts\download_models.py" @()
 # ---------- 6. Trascrizione ----------
 Write-Step 6 'Trascrizione (SheetSage2 + MERT-v2, torch CPU)'
 Run-Python "$root\scripts\install_transcription.py" @('--backend','cpu')
+
+# torch e' codice C++: se sul PC manca il redistributable Visual C++ 2015-2022
+# non riesce a caricare msvcp140.dll. Le stesse DLL sono nel motore precompilato:
+# le copiamo accanto a python.exe e in torch\lib e riproviamo.
+$txpy = "$root\runtime\transcription\python.exe"
+if (Test-Path $txpy) {
+  & $txpy -c "import torch; print('  torch', torch.__version__)"
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host '  torch non si carica: copio il runtime C++ dal motore precompilato' -ForegroundColor DarkYellow
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $arc = [IO.Compression.ZipFile]::OpenRead($zip)
+    try {
+      foreach ($dir in @("$root\runtime\transcription", "$root\runtime\transcription\Lib\site-packages\torch\lib")) {
+        if (-not (Test-Path $dir)) { continue }
+        foreach ($e in $arc.Entries) {
+          if ($e.Name -like '*140*.dll') { [IO.Compression.ZipFileExtensions]::ExtractToFile($e, (Join-Path $dir $e.Name), $true) }
+        }
+        Write-Host "  runtime C++ copiato in $dir"
+      }
+    } finally { $arc.Dispose() }
+    & $txpy -c "import torch; print('  torch', torch.__version__)"
+    if ($LASTEXITCODE -ne 0) { throw 'torch non si carica: installa il redistributable Microsoft Visual C++ 2015-2022 x64 e rilancia install.bat.' }
+  }
+}
 
 # ---------- 7. Impostazioni e avvio del server ----------
 Write-Step 7 'Impostazioni e avvio del server'
