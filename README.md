@@ -13,11 +13,15 @@ Su un PC Windows x64 senza GPU dedicata:
 1. `git clone https://github.com/emanuelealbertosi/H3-Music.git`
 2. Nella cartella del clone, esegui `install.bat` (oppure `powershell -ExecutionPolicy Bypass -File install.ps1`).
 
-L’installatore non richiede compilatori né Visual Studio: estrae il motore audio.cpp precompilato per CPU da `dist/`, scarica Python incorporato 3.12, FFmpeg, i pesi YuE2 (circa 4,5 GB) e il runtime di trascrizione con torch CPU (SheetSage2 + MERT-v2, circa 3 GB), imposta `backend=cpu` nel database e avvia il server su `127.0.0.1:8776`. Servono circa 15 GB di spazio libero e una connessione internet; i download sono riprendibili se interrotti.
+L’installatore non richiede compilatori né Visual Studio: estrae il motore audio.cpp precompilato per CPU da `dist/`, scarica Python incorporato 3.12, FFmpeg, i pesi YuE2 (Q8 e Q4, circa 7 GB) e il runtime di trascrizione con torch CPU (SheetSage2 + MERT-v2, circa 3 GB), imposta `backend=cpu` nel database e avvia il server su `127.0.0.1:8776`. Servono circa 20 GB di spazio libero e una connessione internet; i download sono riprendibili se interrotti. Per scaricare un solo modello: `install.bat -Models q4` (oppure `q8`).
+
+I due modelli servono a scegliere: **Q8** è quello collaudato e con la qualità migliore, **Q4** occupa 2,5 GB invece di 4,0 e su CPU è più veloce, con una qualità leggermente inferiore. La scelta si fa dall’app, in **Preferenze → Modello**, e vale dal lavoro successivo: entrambi restano sul disco, quindi si passa dall’uno all’altro senza riscaricare nulla.
 
 Al termine apri **H3-Music.exe** (o `Avvia-H3-Music.bat`): la finestra app si apre sull’app già attiva. La generazione funziona interamente su CPU: le sintesi richiedono più tempo che sulla GPU e il numero di thread è regolabile nelle impostazioni.
 
 Il motore CPU precompilato richiede un processore x64 con **AVX2, FMA, F16C e BMI2** (Intel Haswell 2013 o successivi, AMD Excavator/Zen o successivi). L’installatore è ripetibile: ogni passo salta ciò che è già presente, quindi si può rilanciare `install.bat` dopo un’interruzione senza riscaricare tutto.
+
+I pesi YuE2 vengono presi da una **revisione fissa** del repository Hugging Face, quella con cui l’app è collaudata: a monte i file cambiano (il 26/09/2026 il modello Q8 è stato sostituito con uno di dimensione diversa) e un’installazione deve restare riproducibile. L’installatore registra dimensioni e SHA-256 di ciò che ha scaricato in `models/installed-models.json`, ed è quel registro che l’app consulta per stabilire se i modelli sono pronti. Per prendere invece l’ultima revisione disponibile: `install.bat -LatestModels` (in tal caso dimensioni e hash attesi vengono letti dall’API di Hugging Face e scritti nello stesso registro).
 
 La generazione su CPU riserva molta memoria di sistema: il motore prealloca le arene dei grafi (circa 20 GB nel picco di una generazione completa, oltre ai pesi). Sono consigliati **32 GB di RAM**; con 16 GB conviene chiudere le altre applicazioni e lasciare il file di paging gestito da Windows. Come riferimento, su un Ryzen 5 3600 (6 core, 8 thread) la sola pianificazione di un brano richiede circa 7 minuti; la sintesi audio completa è sensibilmente più lunga.
 

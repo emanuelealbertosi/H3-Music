@@ -4,7 +4,7 @@
 # FFmpeg, i modelli YuE2 e il runtime di trascrizione (torch CPU), estrae il
 # motore audio.cpp precompilato da dist/, imposta backend=cpu e avvia il server.
 
-param([switch]$DryRun, [switch]$SkipGpuBuild)
+param([switch]$DryRun, [switch]$SkipGpuBuild, [switch]$LatestModels, [string]$Models = 'both')
 
 $ErrorActionPreference = 'Stop'
 # TLS 1.2 sempre; TLS 1.3 solo se il .NET Framework installato lo conosce.
@@ -138,7 +138,7 @@ try {
   }
 } catch { Write-Host '  Memoria fisica: non rilevata' }
 if ($DryRun) { Write-Host 'DRY RUN - nessun download eseguito.'; exit 0 }
-if ($drive.TotalFreeSpace -lt 15GB) { throw "Spazio insufficiente: servono almeno 15 GB liberi (disponibili $freeGB GB)." }
+if ($drive.TotalFreeSpace -lt 20GB) { throw "Spazio insufficiente: servono almeno 20 GB liberi (disponibili $freeGB GB)." }
 
 # ---------- 2. Python incorporato ----------
 Write-Step 2 'Python incorporato 3.12.10'
@@ -186,7 +186,20 @@ if ($code -ne 0) { throw "Motore non avviabile (exit code $code)" }
 
 # ---------- 5. Modelli YuE2 ----------
 Write-Step 5 'Modelli YuE2 (download da Hugging Face)'
-Run-Python "$root\scripts\download_models.py" @()
+$modelArgs = @()
+if ($LatestModels) {
+  Write-Host '  modalita -LatestModels: prendo l ultima revisione del repository' -ForegroundColor DarkYellow
+  $modelArgs += '--latest'
+}
+if ($Models -notin @('both', 'q8', 'q4')) { throw "Valore non valido per -Models: $Models (usa both, q8 o q4)." }
+if ($Models -eq 'both') {
+  Write-Host '  scarico entrambi i modelli: Q8 (4,0 GB, qualita massima) e Q4 (2,5 GB, piu veloce su CPU).' -ForegroundColor DarkYellow
+  Write-Host '  Si sceglie poi dall app, in Preferenze: non serve riscaricare nulla.' -ForegroundColor DarkYellow
+} else {
+  Write-Host "  scarico solo il modello $Models." -ForegroundColor DarkYellow
+  $modelArgs += @('--quant', $Models)
+}
+Run-Python "$root\scripts\download_models.py" $modelArgs
 
 # ---------- 6. Trascrizione ----------
 Write-Step 6 'Trascrizione (SheetSage2 + MERT-v2, torch CPU)'
