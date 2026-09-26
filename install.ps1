@@ -117,9 +117,9 @@ function Get-Sha256([string]$path) {
   try { $s = [IO.File]::OpenRead($path); return ([BitConverter]::ToString($h.ComputeHash($s))).Replace('-','').ToLower() } finally { $s.Close(); $h.Dispose() }
 }
 
-function Run-Python([string]$script, [string[]]$args) {
-  Write-Host "  python: $(Split-Path -Leaf $script) $($args -join ' ')"
-  $code = Invoke-Native "$root\runtime\python\python.exe" (@($script) + $args)
+function Run-Python([string]$script, [string[]]$extra) {
+  Write-Host "  python: $(Split-Path -Leaf $script) $($extra -join ' ')"
+  $code = Invoke-Native "$root\runtime\python\python.exe" (@($script) + $extra)
   if ($code -ne 0) { throw "Script Python fallito: $script (exit code $code)" }
 }
 
