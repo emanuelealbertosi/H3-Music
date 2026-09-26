@@ -354,9 +354,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
     jobs=[get_job(j['id']) for j in db('SELECT id FROM jobs ORDER BY created DESC LIMIT 300')]
     return self.json_response({'projects':projects,'jobs':jobs,'settings':settings(),'runtime':ready(),'options':NUMBERS})
    if path=='/api/system':
-    g=run_capture(['nvidia-smi','--query-gpu=name','--format=csv,noheader'],10)
-    cuda=json.loads(run_capture([str(ROOT/'runtime/python/python.exe'),str(ROOT/'scripts/gpu_info.py')],15).stdout or '{}')
-    return self.json_response(ready()|{'gpu':g.stdout.strip(),'cuda':cuda,'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.1.0','engine_note':'audio.cpp dev, compilato per RTX 5070 Ti; estensione locale per spartiti e artefatti.'})
+    try:
+     g=run_capture(['nvidia-smi','--query-gpu=name','--format=csv,noheader'],10).stdout.strip()
+    except Exception: g=''
+    try:
+     cuda=json.loads(run_capture([str(ROOT/'runtime/python/python.exe'),str(ROOT/'scripts/gpu_info.py')],15).stdout or '{}')
+    except Exception: cuda={}
+    motore='CUDA' if settings()['backend']=='cuda' else 'CPU'
+    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.1.0','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
    if path=='/api/imports': return self.json_response({'sources':transcription.list_sources(DATA)})
    if re.fullmatch('/imports/[a-f0-9]{32}/audio',path):
     source,_=transcription.source(DATA,path.split('/')[2]); return self.file_response(source)
