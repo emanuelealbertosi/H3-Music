@@ -148,8 +148,8 @@ if (-not (Test-Path "$pydir\python.exe")) {
   Expand-Zip "$root\runtime\python-embed.zip" $pydir
   Remove-Item -Force "$root\runtime\python-embed.zip"
 }
-$code = Invoke-Native "$pydir\python.exe" @('-c', 'import sys, sqlite3, ssl; print(" ", sys.version.split()[0], "- sqlite3 e ssl ok")')
-if ($code -ne 0) { throw 'Il Python incorporato non si avvia correttamente. Scarica di nuovo il runtime (cancella runtime\python) e riprova.' }
+$code = Invoke-Native "$pydir\python.exe" @('-c', "import sys, sqlite3, ssl; print(' ', sys.version.split()[0], '- sqlite3 e ssl ok')")
+if ($code -ne 0) { throw 'Il Python incorporato non si avvia correttamente. Controlla che runtime\python contenga python.exe e riprova.' }
 
 # ---------- 3. FFmpeg ----------
 Write-Step 3 'FFmpeg'
@@ -197,7 +197,7 @@ Run-Python "$root\scripts\install_transcription.py" @('--backend','cpu')
 # le copiamo accanto a python.exe e in torch\lib e riproviamo.
 $txpy = "$root\runtime\transcription\python.exe"
 if (Test-Path $txpy) {
-  $code = Invoke-Native $txpy @('-c', 'import torch; print("  torch", torch.__version__)')
+  $code = Invoke-Native $txpy @('-c', "import torch; print('  torch', torch.__version__)")
   if ($code -ne 0) {
     Write-Host '  torch non si carica: copio il runtime C++ dal motore precompilato' -ForegroundColor DarkYellow
     Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -211,7 +211,7 @@ if (Test-Path $txpy) {
         Write-Host "  runtime C++ copiato in $dir"
       }
     } finally { $arc.Dispose() }
-    $code = Invoke-Native $txpy @('-c', 'import torch; print("  torch", torch.__version__)')
+    $code = Invoke-Native $txpy @('-c', "import torch; print('  torch', torch.__version__)")
     if ($code -ne 0) { throw 'torch non si carica: installa il redistributable Microsoft Visual C++ 2015-2022 x64 e rilancia install.bat.' }
   }
 }
