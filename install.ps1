@@ -7,7 +7,10 @@
 param([switch]$DryRun)
 
 $ErrorActionPreference = 'Stop'
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+# TLS 1.2 sempre; TLS 1.3 solo se il .NET Framework installato lo conosce.
+$tls = [Net.SecurityProtocolType]::Tls12
+if ([Enum]::GetNames([Net.SecurityProtocolType]) -contains 'Tls13') { $tls = $tls -bor [Net.SecurityProtocolType]::Tls13 }
+[Net.ServicePointManager]::SecurityProtocol = $tls
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
 
@@ -19,6 +22,7 @@ function Write-Step([int]$n, [string]$text) {
 function Get-Text([string]$url) {
   $req = [Net.HttpWebRequest]::Create($url)
   $req.Timeout = 15000
+  $req.UserAgent = 'H3-Music-Installer'
   $resp = $req.GetResponse()
   try {
     $sr = New-Object IO.StreamReader($resp.GetResponseStream())
@@ -100,7 +104,9 @@ if (-not (Test-Path "$pydir\python.exe")) {
 # ---------- 3. FFmpeg ----------
 Write-Step 3 'FFmpeg'
 if (-not (Test-Path "$root\runtime\ffmpeg.exe")) {
-  Download-File 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' "$root\runtime\ffmpeg.zip"
+  # URL versionato e hash bloccato: il link "latest" cambierebbe a ogni release
+  # e l'hash non corrisponderebbe piu'. FFmpeg 9.0.2 essentials (2026-09-19).
+  Download-File 'https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.2-essentials_build.zip' "$root\runtime\ffmpeg.zip"
   $sha = Get-Sha256 "$root\runtime\ffmpeg.zip"
   if ($sha -ne '60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba') { throw "SHA-256 FFmpeg non valido: $sha" }
   Expand-Zip "$root\runtime\ffmpeg.zip" "$root\runtime\ffmpeg-extract"
