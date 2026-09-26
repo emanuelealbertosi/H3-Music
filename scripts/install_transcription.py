@@ -90,7 +90,12 @@ def runtime(backend):
  assert hashlib.file_digest(open(wheel,'rb'),'sha256').hexdigest()==expected
  subprocess.run([str(py/'python.exe'),'-m','pip','install','--no-cache-dir',str(wheel),'torchaudio==2.8.0','--index-url',index],check=True)
  wheel.unlink()
- subprocess.run([str(py/'python.exe'),'-m','pip','install','--no-cache-dir','-r',str(r/'models/SheetSage2/requirements.txt')],check=True)
+ # requirements.txt arriva dal repository SheetSage2: lo scarichiamo qui, in una
+ # copia separata, perche' models() gira in parallelo e potrebbe non averlo ancora
+ # scritto (una volta pip e' partito prima del download e l'installazione e' fallita)
+ req=tmp/'sheetsage2-requirements.txt'
+ get('https://huggingface.co/m-a-p/SheetSage2/resolve/'+SHEET_REV+'/requirements.txt',req)
+ subprocess.run([str(py/'python.exe'),'-m','pip','install','--no-cache-dir','-r',str(req)],check=True)
  (py/'installed.json').write_text(json.dumps({'torch':f'2.8.0+{tag}','python':'3.11.9','revision':SHEET_REV}),encoding='utf-8')
  print('RUNTIME READY',flush=True)
 
