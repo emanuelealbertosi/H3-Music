@@ -156,10 +156,37 @@ def ready():
  missing=[n for n,size in required.items() if not (MODEL/n).exists() or (MODEL/n).stat().st_size!=size]
  main=[n for n in required if n.startswith('yue2-3b-') and n.endswith('.gguf')]
  if len(main)>1 and any(n not in missing for n in main): missing=[n for n in missing if n not in main]
- return {'ready':ENGINE.exists() and not missing,'engine':ENGINE.exists(),'missing':missing,'ffmpeg':FFMPEG.exists(),'model':'YuE2-3B · %s / VAE F16' % ('Q4_0' if main_model_file().startswith('yue2-3b-q4') else 'Q8_0'),'root':str(ROOT),'transcription':transcription.status(ROOT)}
+ return {'ready':ENGINE.exists() and not missing,'engine':ENGINE.exists(),'missing':missing,'ffmpeg':FFMPEG.exists(),'sep':bool(separation_model()),'model':'YuE2-3B · %s / VAE F16' % ('Q4_0' if main_model_file().startswith('yue2-3b-q4') else 'Q8_0'),'root':str(ROOT),'transcription':transcription.status(ROOT)}
+
+TOOLS=ROOT/'models/tools'
+def separation_model():
+ """Cartella del modello di separazione (HTDemucs), se installato."""
+ d=TOOLS/'HTDemucs-GGUF'
+ return d if d.exists() and any(d.glob('*.gguf')) else None
+
+def source_audio(ident):
+ return OUT/str(ident or '')/'audio.wav'
+
+def enqueue_separation(data):
+ """Accoda la separazione di un brano gia generato (voce, batteria, basso, altro)."""
+ if not ENGINE.exists(): raise ValueError('Il motore non è installato.')
+ if not separation_model(): raise ValueError('Il modello di separazione non è installato: esegui scripts/download_tools.py --tool sep.')
+ ident=data.get('source_id') or ''
+ src=source_audio(ident)
+ if not src.exists(): raise ValueError('Scegli un brano completato da separare.')
+ title='Brano'
+ pid=''
+ try:
+  j=get_job(ident); title=j['request'].get('title') or title; pid=j.get('project_id') or ''
+ except ValueError: pass
+ req={'title':title+' · voce e base','style':'','lyrics':'','abc':'','notes':'','seed':0,'options':{},'source_id':ident}
+ new=uid()
+ db('INSERT INTO jobs(id,project_id,kind,status,request,created) VALUES(?,?,?,?,?,?)',(new,pid,'sep','queued',jdump(req),now()))
+ WAKE.set(); return {'ids':[new]}
 
 def enqueue(data):
  if data.get('kind')=='transcribe': return transcription.enqueue(APP,data)
+ if data.get('kind')=='sep': return enqueue_separation(data)
  if not ready()['ready']: raise ValueError('Il motore o i modelli non sono pronti. Vedi Sistema.')
  pid=data.get('project_id'); p=db('SELECT * FROM projects WHERE id=?',(pid,),True)
  if not p: raise ValueError('Salva prima il progetto.')
@@ -190,7 +217,7 @@ def main_model_file():
   if name in installed or (MODEL/name).exists(): return name
  return wanted
 
-STAGES=(('yue2.vae.','Finalizzazione',95),('yue2.nar.','Sintesi audio',55),('yue2.semantic.','Composizione',8),('yue2.ar.','Composizione',8),('yue2.plan.','Preparazione',2))
+STAGES=(('audio_out[','Separazione',60),('yue2.vae.','Finalizzazione',95),('yue2.nar.','Sintesi audio',55),('yue2.semantic.','Composizione',8),('yue2.ar.','Composizione',8),('yue2.plan.','Preparazione',2))
 def engine_progress(d,started,backend):
  """Fase del motore e avanzamento stimato, ricavati dal suo registro.
 
@@ -207,6 +234,7 @@ def engine_progress(d,started,backend):
  elapsed=max(0.0,time.time()-started)
  if name=='Sintesi audio': lo,hi,typical=55,95,2400 if backend=='cpu' else 60
  elif name=='Composizione': lo,hi,typical=8,55,420 if backend=='cpu' else 25
+ elif name=='Separazione': lo,hi,typical=60,94,240 if backend=='cpu' else 20
  elif name=='Finalizzazione': lo,hi,typical=95,99,60 if backend=='cpu' else 15
  else: lo,hi,typical=pct,pct,0
  if typical: pct=min(hi,lo+int((hi-lo)*min(1.0,elapsed/typical)))
@@ -214,6 +242,9 @@ def engine_progress(d,started,backend):
 
 def command_for(job,d):
  if job['kind']=='transcribe': return transcription.command(APP,job,d)
+ if job['kind']=='sep':
+  s=settings()
+  return [str(ENGINE),'--task','sep','--family','htdemucs','--model',str(separation_model()),'--backend',s['backend'],'--threads',str(s['threads']),'--audio',str(source_audio(job['request'].get('source_id'))),'--out-dir',str(d),'--log','--metrics']
  req=job['request']; opts=req['options']|{'style':req['style'],'cot':req['cot'],'seed':str(req['seed']),'h3_artifact_dir':str(d),'h3_plan_only':'true' if job['kind']=='plan' else 'false'}
  if req['abc']:
   (d/'input.abc').write_text(req['abc'],encoding='utf-8'); opts['abc_file']=str(d/'input.abc')
@@ -250,6 +281,12 @@ def audio_info(path):
 
 def finish_artifacts(job,d):
  if job['kind']=='transcribe': return transcription.finish(APP,job,d)
+ if job['kind']=='sep':
+  stems=[n for n in ('vocals.wav','drums.wav','bass.wav','other.wav') if (d/n).exists()]
+  if not stems: raise RuntimeError('La separazione non ha prodotto file utilizzabili.')
+  try: dur=audio_info(d/stems[0]).get('duration',0)
+  except Exception: dur=0
+  return {'stems':stems,'duration':dur,'source_id':job['request'].get('source_id','')}
  score=decode_score(d)
  if not score and job['request']['abc']: (d/'score.abc').write_text(job['request']['abc'],encoding='utf-8')
  flags=d/'generation_flags.json'; result=json.loads(flags.read_text()) if flags.exists() else {}
@@ -306,7 +343,9 @@ def worker():
     reason=json.loads(progress.read_text(encoding='utf-8')).get('message','') if job['kind']=='transcribe' and progress.exists() else ''
     if not reason:
      tail=(d/'engine.log').read_text(encoding='utf-8',errors='replace')[-4000:] if (d/'engine.log').exists() else ''
-     if 'failed to allocate' in tail or 'GGML_ASSERT' in tail:
+     if 'unsupported model family hint' in tail:
+      reason='Il motore installato non include il modello richiesto (per esempio la separazione). Il motore CPU distribuito lo include; su un PC con GPU ricompila con scripts/build_engine_cuda.ps1.'
+     elif 'failed to allocate' in tail or 'GGML_ASSERT' in tail:
       mem=system_memory()
       if 'cudaMalloc' in tail or 'CUDA0 buffer' in tail or 'device 0' in tail:
        reason='Memoria video insufficiente: la scheda non ha spazio per il grafo del motore. Chiudi le altre applicazioni che usano la GPU (o scegli backend CPU in Preferenze) e riprova.'

@@ -201,6 +201,11 @@ if ($Models -eq 'both') {
 }
 Run-Python "$root\scripts\download_models.py" $modelArgs
 
+# Modelli ausiliari: separazione voce/strumenti (59 MB). Servono per la funzione
+# "separa voce e base"; il motore CPU distribuito li supporta.
+Write-Host '  modelli ausiliari (separazione voce e base)...'
+Run-Python "$root\scripts\download_tools.py" @('--tool','sep')
+
 # ---------- 6. Trascrizione ----------
 Write-Step 6 'Trascrizione (SheetSage2 + MERT-v2, torch CPU)'
 Run-Python "$root\scripts\install_transcription.py" @('--backend','cpu')

@@ -1,8 +1,17 @@
 # Voce su misura per i brani generati
 
 Stima e piano, da approvare prima di implementare. Obiettivo: dare a una canzone
-composta da YuE2 una voce scelta dall'utente (un campione di riferimento), invece
-della voce generica del modello.
+composta da YuE2 una voce scelta dall'utente, a partire da un **campione parlato**
+di riferimento; il risultato finale è **cantato**.
+
+## 0. Decisioni prese
+
+- Il campione di riferimento è **voce parlata** (10-30 secondi, puliti).
+- Il risultato è **cantato**: la voce del brano generato viene convertita.
+- Modalità **zero-shot**: nessun modello da addestrare, basta il campione.
+- Deve funzionare sia sul PC con GPU sia su quello solo CPU.
+- Le funzioni esistenti (generazione, pianificazione, trascrizione, coda,
+  avanzamento) non devono rompersi.
 
 ## 1. Cosa c'è già nel motore (nessuna ricompilazione)
 
