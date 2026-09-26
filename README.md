@@ -19,6 +19,8 @@ Al termine apri **H3-Music.exe** (o `Avvia-H3-Music.bat`): la finestra app si ap
 
 Il motore CPU precompilato richiede un processore x64 con **AVX2, FMA, F16C e BMI2** (Intel Haswell 2013 o successivi, AMD Excavator/Zen o successivi). L’installatore è ripetibile: ogni passo salta ciò che è già presente, quindi si può rilanciare `install.bat` dopo un’interruzione senza riscaricare tutto.
 
+La generazione su CPU riserva molta memoria di sistema: il motore prealloca le arene dei grafi (circa 20 GB nel picco di una generazione completa, oltre ai pesi). Sono consigliati **32 GB di RAM**; con 16 GB conviene chiudere le altre applicazioni e lasciare il file di paging gestito da Windows. Come riferimento, su un Ryzen 5 3600 (6 core, 8 thread) la sola pianificazione di un brano richiede circa 7 minuti; la sintesi audio completa è sensibilmente più lunga.
+
 ## Avvio
 
 Apri il collegamento **H3-Music** sul desktop oppure `F:\H3-Music\H3-Music.exe`. Il launcher apre una finestra app di Microsoft Edge e avvia il servizio esclusivamente su `127.0.0.1:8776`. Se è già attivo, riusa il servizio. Il runtime Python e FFmpeg sono inclusi nella cartella; ComfyUI non è necessario.

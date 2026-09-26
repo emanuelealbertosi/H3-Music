@@ -76,6 +76,14 @@ if (-not [Environment]::Is64BitOperatingSystem) { throw 'H3-Music richiede Windo
 $drive = New-Object IO.DriveInfo([IO.Path]::GetPathRoot((Resolve-Path $root).Path))
 $freeGB = [math]::Round($drive.TotalFreeSpace / 1GB, 1)
 Write-Host "  Spazio libero su disco: ${freeGB} GB"
+try {
+  $ramGB = [math]::Round((Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).TotalPhysicalMemory / 1GB, 1)
+  Write-Host "  Memoria fisica: ${ramGB} GB"
+  if ($ramGB -lt 24) {
+    Write-Host '  Nota: la generazione su CPU riserva molta memoria (circa 20 GB nel picco).' -ForegroundColor Yellow
+    Write-Host '  Con meno di 24 GB conviene chiudere le altre applicazioni o aumentare il file di paging.' -ForegroundColor Yellow
+  }
+} catch { Write-Host '  Memoria fisica: non rilevata' }
 if ($DryRun) { Write-Host 'DRY RUN — nessun download eseguito.'; exit 0 }
 if ($drive.TotalFreeSpace -lt 15GB) { throw "Spazio insufficiente: servono almeno 15 GB liberi (disponibili $freeGB GB)." }
 
