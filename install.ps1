@@ -1,4 +1,4 @@
-# H3-Music — installatore Windows x64 (motore CPU precompilato)
+# H3-Music - installatore Windows x64 (motore CPU precompilato)
 # Uso: powershell -ExecutionPolicy Bypass -File install.ps1   (oppure install.bat)
 # Non richiede compilatori, Visual Studio o GPU: scarica Python incorporato,
 # FFmpeg, i modelli YuE2 e il runtime di trascrizione (torch CPU), estrae il
@@ -36,7 +36,7 @@ function New-ParentDir([string]$path) {
 }
 
 function Download-File([string]$url, [string]$dest) {
-  if (Test-Path -LiteralPath $dest) { Write-Host "  già presente: $(Split-Path -Leaf $dest)"; return }
+  if (Test-Path -LiteralPath $dest) { Write-Host "  gia' presente: $(Split-Path -Leaf $dest)"; return }
   New-ParentDir $dest
   $tmp = "$dest.partial"
   $why = ''
@@ -60,7 +60,7 @@ function Download-File([string]$url, [string]$dest) {
     } catch {
       if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
       $why = $_.Exception.Message
-      if ($_.Exception.InnerException) { $why = "$why — $($_.Exception.InnerException.Message)" }
+      if ($_.Exception.InnerException) { $why = "$why - $($_.Exception.InnerException.Message)" }
       Write-Host "  nuovo tentativo $($i+1)/3... ($why)" -ForegroundColor DarkYellow
       Start-Sleep -Seconds 3
     }
@@ -77,7 +77,7 @@ function Download-File([string]$url, [string]$dest) {
       return
     }
     if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
-    $why = "$why — anche curl.exe ha fallito (exit $LASTEXITCODE)"
+    $why = "$why - anche curl.exe ha fallito (exit $LASTEXITCODE)"
   }
   throw "Download fallito: $url`n  motivo: $why"
 }
@@ -114,7 +114,7 @@ try {
     Write-Host '  Con meno di 24 GB conviene chiudere le altre applicazioni o aumentare il file di paging.' -ForegroundColor Yellow
   }
 } catch { Write-Host '  Memoria fisica: non rilevata' }
-if ($DryRun) { Write-Host 'DRY RUN — nessun download eseguito.'; exit 0 }
+if ($DryRun) { Write-Host 'DRY RUN - nessun download eseguito.'; exit 0 }
 if ($drive.TotalFreeSpace -lt 15GB) { throw "Spazio insufficiente: servono almeno 15 GB liberi (disponibili $freeGB GB)." }
 
 # ---------- 2. Python incorporato ----------

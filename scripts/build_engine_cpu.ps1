@@ -1,4 +1,4 @@
-# H3-Music — build del motore audio.cpp per CPU (Windows x64, MSVC)
+# H3-Music - build del motore audio.cpp per CPU (Windows x64, MSVC)
 #
 # Produce dist/h3-engine-cpu-win64.zip, l'engine precompilato che l'installatore
 # estrae in runtime/engine. Serve solo sulla macchina di build: il PC di
