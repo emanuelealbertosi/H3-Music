@@ -39,7 +39,9 @@ function Download-File([string]$url, [string]$dest) {
   if (Test-Path -LiteralPath $dest) { Write-Host "  già presente: $(Split-Path -Leaf $dest)"; return }
   New-ParentDir $dest
   $tmp = "$dest.partial"
-  for ($i = 0; $i -lt 4; $i++) {
+  $why = ''
+  # 1) .NET HttpWebRequest (TLS 1.2/1.3 impostati sopra)
+  for ($i = 0; $i -lt 3; $i++) {
     try {
       $req = [Net.HttpWebRequest]::Create($url)
       $req.Timeout = 300000
@@ -59,11 +61,25 @@ function Download-File([string]$url, [string]$dest) {
       if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
       $why = $_.Exception.Message
       if ($_.Exception.InnerException) { $why = "$why — $($_.Exception.InnerException.Message)" }
-      if ($i -eq 3) { throw "Download fallito: $url`n  motivo: $why" }
-      Write-Host "  nuovo tentativo $($i+1)/4... ($why)" -ForegroundColor DarkYellow
+      Write-Host "  nuovo tentativo $($i+1)/3... ($why)" -ForegroundColor DarkYellow
       Start-Sleep -Seconds 3
     }
   }
+  # 2) Ripiego su curl.exe (usa lo stack TLS di Windows): utile se .NET non
+  #    riesce a negoziare TLS o mancano certificati radice aggiornati.
+  $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
+  if (Test-Path -LiteralPath $curl) {
+    Write-Host '  riprovo con curl.exe...' -ForegroundColor DarkYellow
+    & $curl '--location' '--fail' '--silent' '--show-error' '--retry' '3' '--retry-delay' '3' '--output' $tmp $url
+    if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tmp)) {
+      Move-Item -LiteralPath $tmp -Destination $dest -Force
+      Write-Host "  scaricato con curl: $(Split-Path -Leaf $dest) ($([math]::Round((Get-Item -LiteralPath $dest).Length / 1MB, 1)) MB)"
+      return
+    }
+    if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+    $why = "$why — anche curl.exe ha fallito (exit $LASTEXITCODE)"
+  }
+  throw "Download fallito: $url`n  motivo: $why"
 }
 
 function Expand-Zip([string]$zip, [string]$dest) {
