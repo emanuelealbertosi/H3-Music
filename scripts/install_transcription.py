@@ -56,14 +56,14 @@ def get(url,p):
 
 def models():
  parent=r/'models/MERT-v2-FullSong';parent.mkdir(exist_ok=True,parents=True)
- tree=json.loads((r/'scripts/mert-tree.json').read_text())
+ tree=json.loads((r/'scripts/mert-tree.json').read_text(encoding='utf-8'))
  for f in tree:
   if f['type']=='file' and f['path'] in ['config.json','configuration_mert2.py','modeling_mert2.py','model.safetensors','LICENSE']:
    dest=parent/f['path'];get('https://huggingface.co/m-a-p/MERT-v2-FullSong/resolve/'+MERT_REV+'/'+f['path'],dest)
    if f.get('lfs'):assert hashlib.file_digest(open(dest,'rb'),'sha256').hexdigest()==f['lfs']['oid']
    print('MODEL',dest.name,dest.stat().st_size,flush=True)
  sheet=r/'models/SheetSage2';sheet.mkdir(exist_ok=True,parents=True)
- meta=json.loads((r/'scripts/sheetsage2-revision.json').read_text())
+ meta=json.loads((r/'scripts/sheetsage2-revision.json').read_text(encoding='utf-8'))
  assert meta['revision']==SHEET_REV
  for f in meta['files']:
   if f['type']!='file':continue
@@ -77,7 +77,7 @@ def runtime(backend):
  if not (py/'Lib/site-packages/pip').exists():
   archive=tmp/'python311.zip';get('https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip',archive)
   with zipfile.ZipFile(archive) as z:z.extractall(py)
-  (py/'python311._pth').write_text('python311.zip\n.\nLib/site-packages\nimport site\n')
+  (py/'python311._pth').write_text('python311.zip\n.\nLib/site-packages\nimport site\n',encoding='utf-8')
   bootstrap=tmp/'get-pip.py';get('https://bootstrap.pypa.io/get-pip.py',bootstrap)
   subprocess.run([str(py/'python.exe'),str(bootstrap),'--no-cache-dir'],check=True)
  wheel_cache=tmp;wheel_cache.mkdir(exist_ok=True,parents=True)
@@ -91,7 +91,7 @@ def runtime(backend):
  subprocess.run([str(py/'python.exe'),'-m','pip','install','--no-cache-dir',str(wheel),'torchaudio==2.8.0','--index-url',index],check=True)
  wheel.unlink()
  subprocess.run([str(py/'python.exe'),'-m','pip','install','--no-cache-dir','-r',str(r/'models/SheetSage2/requirements.txt')],check=True)
- (py/'installed.json').write_text(json.dumps({'torch':f'2.8.0+{tag}','python':'3.11.9','revision':SHEET_REV}))
+ (py/'installed.json').write_text(json.dumps({'torch':f'2.8.0+{tag}','python':'3.11.9','revision':SHEET_REV}),encoding='utf-8')
  print('RUNTIME READY',flush=True)
 
 def manifest():
@@ -101,7 +101,7 @@ def manifest():
               'models/MERT-v2-FullSong/model.safetensors':sha('models/MERT-v2-FullSong/model.safetensors'),
               'models/MERT-v2-FullSong/modeling_mert2.py':sha('models/MERT-v2-FullSong/modeling_mert2.py'),
               'models/MERT-v2-FullSong/configuration_mert2.py':sha('models/MERT-v2-FullSong/configuration_mert2.py')}}
- (r/'models/transcription-manifest.json').write_text(json.dumps(m,indent=1))
+ (r/'models/transcription-manifest.json').write_text(json.dumps(m,indent=1),encoding='utf-8')
 
 p=argparse.ArgumentParser()
 p.add_argument('--backend',choices=['cpu','cuda'],required=True)

@@ -10,7 +10,7 @@ r = pathlib.Path(__file__).resolve().parents[1]
 d = r/'data'; d.mkdir(parents=True, exist_ok=True)
 db = d/'music.sqlite'
 if db.exists():
-    print('DATABASE EXISTS — settings left untouched')
+    print('DATABASE EXISTS - settings left untouched')
 else:
     c = sqlite3.connect(db)
     c.executescript('''PRAGMA journal_mode=WAL;

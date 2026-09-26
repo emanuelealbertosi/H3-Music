@@ -13,6 +13,10 @@ if ([Enum]::GetNames([Net.SecurityProtocolType]) -contains 'Tls13') { $tls = $tl
 [Net.ServicePointManager]::SecurityProtocol = $tls
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
+# Python in UTF-8 a prescindere dalla codepage di sistema: evita errori di
+# codifica su console non Unicode e mantiene coerenti i file scritti dagli script.
+$env:PYTHONUTF8 = '1'
+$env:PYTHONIOENCODING = 'utf-8'
 
 function Write-Step([int]$n, [string]$text) {
   Write-Host ''
@@ -89,6 +93,25 @@ function Expand-Zip([string]$zip, [string]$dest) {
   [IO.Compression.ZipFile]::ExtractToDirectory($zip, $dest)
 }
 
+# Esegue un programma esterno e restituisce il suo exit code.
+# Serve perche' con ErrorActionPreference='Stop' qualunque messaggio su stderr
+# (pip, python, git, il motore) verrebbe trattato come errore fatale: qui lo
+# stderr viene mostrato ma non interrompe l'installazione.
+function Invoke-Native([string]$exe, [string[]]$arguments) {
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  $code = 0
+  try {
+    & $exe @arguments 2>&1 | ForEach-Object {
+      if ($_ -is [System.Management.Automation.ErrorRecord]) { Write-Host "  $($_.Exception.Message)" }
+      else { Write-Host "  $_" }
+    }
+    $code = $LASTEXITCODE
+  } finally { $ErrorActionPreference = $prev }
+  if ($null -eq $code) { $code = 0 }
+  return $code
+}
+
 function Get-Sha256([string]$path) {
   $h = [Security.Cryptography.SHA256]::Create()
   try { $s = [IO.File]::OpenRead($path); return ([BitConverter]::ToString($h.ComputeHash($s))).Replace('-','').ToLower() } finally { $s.Close(); $h.Dispose() }
@@ -96,8 +119,8 @@ function Get-Sha256([string]$path) {
 
 function Run-Python([string]$script, [string[]]$args) {
   Write-Host "  python: $(Split-Path -Leaf $script) $($args -join ' ')"
-  & "$root\runtime\python\python.exe" $script @args
-  if ($LASTEXITCODE -ne 0) { throw "Script Python fallito: $script (exit code $LASTEXITCODE)" }
+  $code = Invoke-Native "$root\runtime\python\python.exe" (@($script) + $args)
+  if ($code -ne 0) { throw "Script Python fallito: $script (exit code $code)" }
 }
 
 # ---------- 1. Prerequisiti ----------
@@ -125,8 +148,8 @@ if (-not (Test-Path "$pydir\python.exe")) {
   Expand-Zip "$root\runtime\python-embed.zip" $pydir
   Remove-Item -Force "$root\runtime\python-embed.zip"
 }
-& "$pydir\python.exe" -c "import sys, sqlite3, ssl; print(' ', sys.version.split()[0], '- sqlite3 e ssl ok')"
-if ($LASTEXITCODE -ne 0) { throw 'Il Python incorporato non si avvia correttamente. Scarica di nuovo il runtime (cancella runtime\python) e riprova.' }
+$code = Invoke-Native "$pydir\python.exe" @('-c', 'import sys, sqlite3, ssl; print(" ", sys.version.split()[0], "- sqlite3 e ssl ok")')
+if ($code -ne 0) { throw 'Il Python incorporato non si avvia correttamente. Scarica di nuovo il runtime (cancella runtime\python) e riprova.' }
 
 # ---------- 3. FFmpeg ----------
 Write-Step 3 'FFmpeg'
@@ -137,8 +160,14 @@ if (-not (Test-Path "$root\runtime\ffmpeg.exe")) {
   $sha = Get-Sha256 "$root\runtime\ffmpeg.zip"
   if ($sha -ne '60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba') { throw "SHA-256 FFmpeg non valido: $sha" }
   Expand-Zip "$root\runtime\ffmpeg.zip" "$root\runtime\ffmpeg-extract"
-  Copy-Item "$root\runtime\ffmpeg-extract\bin\ffmpeg.exe" "$root\runtime\ffmpeg.exe" -Force
-  Copy-Item "$root\runtime\ffmpeg-extract\bin\ffprobe.exe" "$root\runtime\ffprobe.exe" -Force
+  # Lo zip di gyan.dev contiene una cartella di primo livello
+  # (ffmpeg-<versione>-essentials_build\bin\...): cerchiamo gli eseguibili
+  # ovunque invece di dare per scontata la struttura.
+  $ff = Get-ChildItem "$root\runtime\ffmpeg-extract" -Recurse -Filter 'ffmpeg.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+  $fp = Get-ChildItem "$root\runtime\ffmpeg-extract" -Recurse -Filter 'ffprobe.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $ff -or -not $fp) { throw 'Nello zip di FFmpeg non trovo ffmpeg.exe e ffprobe.exe.' }
+  Copy-Item $ff.FullName "$root\runtime\ffmpeg.exe" -Force
+  Copy-Item $fp.FullName "$root\runtime\ffprobe.exe" -Force
   Remove-Item -Recurse -Force "$root\runtime\ffmpeg-extract"
   Remove-Item -Force "$root\runtime\ffmpeg.zip"
 }
@@ -152,8 +181,8 @@ if (-not (Test-Path "$eng\audiocpp_cli.exe")) {
   if (Test-Path $eng) { Remove-Item -Recurse -Force $eng }
   Expand-Zip $zip $eng
 }
-& "$eng\audiocpp_cli.exe" --version | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "Motore non avviabile (exit code $LASTEXITCODE)" }
+$code = Invoke-Native "$eng\audiocpp_cli.exe" @('--version')
+if ($code -ne 0) { throw "Motore non avviabile (exit code $code)" }
 
 # ---------- 5. Modelli YuE2 ----------
 Write-Step 5 'Modelli YuE2 (download da Hugging Face)'
@@ -168,8 +197,8 @@ Run-Python "$root\scripts\install_transcription.py" @('--backend','cpu')
 # le copiamo accanto a python.exe e in torch\lib e riproviamo.
 $txpy = "$root\runtime\transcription\python.exe"
 if (Test-Path $txpy) {
-  & $txpy -c "import torch; print('  torch', torch.__version__)"
-  if ($LASTEXITCODE -ne 0) {
+  $code = Invoke-Native $txpy @('-c', 'import torch; print("  torch", torch.__version__)')
+  if ($code -ne 0) {
     Write-Host '  torch non si carica: copio il runtime C++ dal motore precompilato' -ForegroundColor DarkYellow
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $arc = [IO.Compression.ZipFile]::OpenRead($zip)
@@ -182,8 +211,8 @@ if (Test-Path $txpy) {
         Write-Host "  runtime C++ copiato in $dir"
       }
     } finally { $arc.Dispose() }
-    & $txpy -c "import torch; print('  torch', torch.__version__)"
-    if ($LASTEXITCODE -ne 0) { throw 'torch non si carica: installa il redistributable Microsoft Visual C++ 2015-2022 x64 e rilancia install.bat.' }
+    $code = Invoke-Native $txpy @('-c', 'import torch; print("  torch", torch.__version__)')
+    if ($code -ne 0) { throw 'torch non si carica: installa il redistributable Microsoft Visual C++ 2015-2022 x64 e rilancia install.bat.' }
   }
 }
 
@@ -252,8 +281,8 @@ if ($SkipGpuBuild) {
   Write-Host '  La compilazione puo durare da 20 a 60 minuti e usa la CPU; puoi interromperla con Ctrl+C.' -ForegroundColor DarkYellow
   Write-Host '  L app intanto e gia funzionante con il motore CPU.' -ForegroundColor DarkYellow
   Write-Host ''
-  & powershell -NoProfile -ExecutionPolicy Bypass -File $gpuScript
-  if ($LASTEXITCODE -ne 0) {
+  $code = Invoke-Native 'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $gpuScript)
+  if ($code -ne 0) {
     Write-Host ''
     Write-Host '  Build GPU non riuscita: l app resta pienamente funzionante su CPU.' -ForegroundColor Yellow
     Write-Host '  Puoi riprovare quando vuoi con: powershell -ExecutionPolicy Bypass -File scripts\build_engine_cuda.ps1' -ForegroundColor Yellow
