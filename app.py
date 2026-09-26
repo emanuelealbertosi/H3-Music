@@ -280,7 +280,7 @@ def main_model_file():
   if name in installed or (MODEL/name).exists(): return name
  return wanted
 
-STAGES=(('audio_out[','Separazione',60),('yue2.vae.','Finalizzazione',95),('yue2.nar.','Sintesi audio',55),('yue2.semantic.','Composizione',8),('yue2.ar.','Composizione',8),('yue2.plan.','Preparazione',2))
+STAGES=(('seed_vc.','Conversione voce',10),('audio_out[','Separazione',60),('yue2.vae.','Finalizzazione',95),('yue2.nar.','Sintesi audio',55),('yue2.semantic.','Composizione',8),('yue2.ar.','Composizione',8),('yue2.plan.','Preparazione',2))
 def engine_progress(d,started,backend):
  """Fase del motore e avanzamento stimato, ricavati dal suo registro.
 
@@ -298,6 +298,7 @@ def engine_progress(d,started,backend):
  if name=='Sintesi audio': lo,hi,typical=55,95,2400 if backend=='cpu' else 60
  elif name=='Composizione': lo,hi,typical=8,55,420 if backend=='cpu' else 25
  elif name=='Separazione': lo,hi,typical=60,94,240 if backend=='cpu' else 20
+ elif name=='Conversione voce': lo,hi,typical=10,94,1800 if backend=='cpu' else 120
  elif name=='Finalizzazione': lo,hi,typical=95,99,60 if backend=='cpu' else 15
  else: lo,hi,typical=pct,pct,0
  if typical: pct=min(hi,lo+int((hi-lo)*min(1.0,elapsed/typical)))
