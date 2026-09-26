@@ -55,14 +55,14 @@ def get(url,p):
  with concurrent.futures.ThreadPoolExecutor(12) as pool:list(pool.map(part,range(0,size,chunk_size)))
 
 def models():
- parent=r/'models/MERT-v2-FullSong';parent.mkdir(exist_ok=True)
+ parent=r/'models/MERT-v2-FullSong';parent.mkdir(exist_ok=True,parents=True)
  tree=json.loads((r/'scripts/mert-tree.json').read_text())
  for f in tree:
   if f['type']=='file' and f['path'] in ['config.json','configuration_mert2.py','modeling_mert2.py','model.safetensors','LICENSE']:
    dest=parent/f['path'];get('https://huggingface.co/m-a-p/MERT-v2-FullSong/resolve/'+MERT_REV+'/'+f['path'],dest)
    if f.get('lfs'):assert hashlib.file_digest(open(dest,'rb'),'sha256').hexdigest()==f['lfs']['oid']
    print('MODEL',dest.name,dest.stat().st_size,flush=True)
- sheet=r/'models/SheetSage2';sheet.mkdir(exist_ok=True)
+ sheet=r/'models/SheetSage2';sheet.mkdir(exist_ok=True,parents=True)
  meta=json.loads((r/'scripts/sheetsage2-revision.json').read_text())
  assert meta['revision']==SHEET_REV
  for f in meta['files']:
@@ -107,7 +107,7 @@ p=argparse.ArgumentParser()
 p.add_argument('--backend',choices=['cpu','cuda'],required=True)
 a=p.parse_args()
 os.environ.update(TEMP=str(tmp),TMP=str(tmp),PYTHONUTF8='1',PIP_DISABLE_PIP_VERSION_CHECK='1')
-tmp.mkdir(exist_ok=True);py.mkdir(exist_ok=True)
+tmp.mkdir(exist_ok=True,parents=True);py.mkdir(exist_ok=True,parents=True)
 with concurrent.futures.ThreadPoolExecutor(2) as pool:
  futures=[pool.submit(models),pool.submit(runtime,a.backend)]
  for f in futures:f.result()

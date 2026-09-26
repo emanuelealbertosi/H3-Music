@@ -30,8 +30,14 @@ function Get-Text([string]$url) {
   } finally { $sr.Close(); $resp.Close() }
 }
 
+function New-ParentDir([string]$path) {
+  $dir = Split-Path -Parent $path
+  if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+}
+
 function Download-File([string]$url, [string]$dest) {
   if (Test-Path -LiteralPath $dest) { Write-Host "  già presente: $(Split-Path -Leaf $dest)"; return }
+  New-ParentDir $dest
   $tmp = "$dest.partial"
   for ($i = 0; $i -lt 4; $i++) {
     try {
@@ -39,26 +45,30 @@ function Download-File([string]$url, [string]$dest) {
       $req.Timeout = 300000
       $req.UserAgent = 'H3-Music-Installer'
       $resp = $req.GetResponse()
-      $fs = [IO.File]::OpenWrite($tmp)
       try {
-        $buf = New-Object byte[] (1MB)
-        while (($n = $resp.GetResponseStream().Read($buf, 0, $buf.Length)) -gt 0) { $fs.Write($buf, 0, $n) }
-      } finally { $fs.Close() }
-      $resp.Close()
+        $fs = [IO.File]::Open($tmp, [IO.FileMode]::Create, [IO.FileAccess]::Write)
+        try {
+          $buf = New-Object byte[] (1MB)
+          while (($n = $resp.GetResponseStream().Read($buf, 0, $buf.Length)) -gt 0) { $fs.Write($buf, 0, $n) }
+        } finally { $fs.Close() }
+      } finally { $resp.Close() }
       Move-Item -LiteralPath $tmp -Destination $dest -Force
-      Write-Host "  scaricato: $(Split-Path -Leaf $dest)"
+      Write-Host "  scaricato: $(Split-Path -Leaf $dest) ($([math]::Round((Get-Item -LiteralPath $dest).Length / 1MB, 1)) MB)"
       return
     } catch {
       if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
-      if ($i -eq 3) { throw "Download fallito: $url" }
-      Write-Host "  nuovo tentativo $($i+1)/4..."
-      Start-Sleep -Seconds 2
+      $why = $_.Exception.Message
+      if ($_.Exception.InnerException) { $why = "$why — $($_.Exception.InnerException.Message)" }
+      if ($i -eq 3) { throw "Download fallito: $url`n  motivo: $why" }
+      Write-Host "  nuovo tentativo $($i+1)/4... ($why)" -ForegroundColor DarkYellow
+      Start-Sleep -Seconds 3
     }
   }
 }
 
 function Expand-Zip([string]$zip, [string]$dest) {
   Add-Type -AssemblyName System.IO.Compression.FileSystem
+  New-ParentDir $dest
   if (Test-Path -LiteralPath $dest) { Remove-Item -Recurse -Force $dest }
   [IO.Compression.ZipFile]::ExtractToDirectory($zip, $dest)
 }
