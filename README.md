@@ -58,7 +58,21 @@ Per fermare il servizio usa `Ferma-H3-Music.bat`. Chiudere la finestra mantiene 
 - Assistente musicale facoltativo via LM Studio locale: propone testi, stile e modifiche allo spartito, da applicare dopo averle lette.
 - Diagnostica GPU, memoria, modelli, runtime e spazio disco.
 
-## Prima prova
+## Voce su misura (sperimentale)
+
+Dà a un brano generato una voce scelta da te, partendo da un **campione parlato**.
+
+1. Genera un brano e aprine il dettaglio.
+2. Premi **Separa voce e base**: il motore divide il brano in voce, batteria, basso e altro.
+3. Metti un campione parlato di 10-30 secondi, pulito e senza musica, in `data\voci\<nome>\` (wav, mp3 o flac).
+4. Nel dettaglio della separazione premi **Canta con una voce** e scegli la voce: la traccia vocale viene convertita verso quel timbro e rimissata con la base strumentale.
+
+Servono due modelli ausiliari: **HTDemucs** (59 MB, separazione) e **SeedVC** (2,98 GB, conversione zero-shot). Li scarica l’installatore; a mano: `runtime\python\python.exe scripts\download_tools.py --tool sep` e `--tool voice`.
+
+Tempi misurati su CPU (Ryzen 5 3600, 8 thread): la **separazione** costa circa 1,2 volte la durata del brano (3 minuti → ~4 minuti); la **conversione** è la parte pesante, 20-60 volte la durata (3 minuti → da una a tre ore), quindi il flusso completo è pratico sulla macchina con GPU o su frammenti brevi. Dettagli, stato e limiti in `docs/voce-su-misura.md`.
+
+Nota: servono entrambe le famiglie nel motore installato. Il motore CPU distribuito le include; un motore CUDA compilato in precedenza con un insieme di modelli più ristretto potrebbe non averle (in quel caso ricompila con `scripts\build_engine_cuda.ps1`).
+
 
 1. Scrivi il titolo e scegli un preset di stile.
 2. Inserisci parole originali in sezioni `[Verse]` e `[Chorus]`.
