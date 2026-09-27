@@ -84,6 +84,8 @@ Il campione può essere **parlato**: serve come riferimento del timbro, mentre c
 
 I campioni restano disponibili nell’app. Il risultato completo si trova in **Libreria**, con player ed esportazione. La conversione cambia soprattutto il timbro, non corregge automaticamente parole e accenti. [Guida completa](docs/voce-su-misura.md).
 
+**Mix voce e musica (1.5):** il cambio voce bilancia automaticamente il volume del canto convertito rispetto al canto originale, applica una compressione leggera e protegge il mix dai picchi. Studio e Cambia voce offrono il cursore **Più musica / Più voce** e un ambiente regolabile (inizialmente spento). Per un brano già convertito: **Libreria → Apri sessione → Regola voce e musica → Salva un nuovo mix**. Usa le tracce esistenti, senza nuova generazione o conversione; conserva la versione precedente e permette di ascoltarla nella nuova sessione. Il mix funziona su CPU con FFmpeg già incluso, anche se i modelli sono stati eseguiti su GPU. Non richiede nuovi download.
+
 Servono due modelli ausiliari: **HTDemucs** (59 MB, separazione) e **SeedVC** (2,98 GB, conversione zero-shot). Li scarica l’installatore; a mano: `runtime\python\python.exe scripts\download_tools.py --tool sep` e `--tool voice`.
 
 Tempi misurati su CPU (Ryzen 5 3600, 8 thread): la **separazione** costa circa 1,2 volte la durata del brano (3 minuti → ~4 minuti); la **conversione** è la parte pesante, 20-60 volte la durata (3 minuti → da una a tre ore), quindi il flusso completo è pratico sulla macchina con GPU o su frammenti brevi. Dettagli, stato e limiti in `docs/voce-su-misura.md`.

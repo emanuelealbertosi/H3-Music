@@ -65,3 +65,20 @@ Riferimento: il [codice originale Seed-VC](https://github.com/Plachtaa/seed-vc/b
 Il riferimento resta una registrazione **parlata**: non è necessario cantare. Si trasferisce il timbro sul canto già presente nella canzone. Le parti della traccia separata praticamente silenziose (RMS sotto −60 dBFS e picco sotto −40 dBFS) vengono conservate senza sintesi, evitando errori F0 e rumori inventati nelle code strumentali; i segmenti interessati sono registrati nel manifest.
 
 Collaudo 1.4.2: 42 test, copertura dei segmenti fino a 30 minuti, numero di campioni invariato nel raccordo, cancellazione e code quasi silenziose. Una prova GPU sul brano completo di circa 174 secondi produce 8 segmenti. Il confronto locale con riconoscimento vocale mostra il recupero di contenuto dopo i primi 30 secondi, ma è impreciso anche sull’originale e non è una certificazione di intelligibilità o somiglianza.
+
+## Bilanciamento e ambiente (versione 1.5)
+
+In Studio e Cambia voce, il pannello **Voce e musica** offre:
+
+- **Bilanciamento automatico dall’originale**, attivo inizialmente: misura il volume percepito della voce originale separata e adegua quello della voce convertita dopo gli effetti. La correzione è limitata a −18/+12 dB; il silenzio e le tracce estremamente deboli non vengono amplificati automaticamente.
+- **Più musica / Più voce**: regolazione della voce da −12 a +12 dB rispetto al bilanciamento scelto. Il rapporto fra strumenti non cambia.
+- **Addolcisci gli sbalzi della voce**: compressione leggera 2:1, attiva inizialmente.
+- **Ambiente**: piccole riflessioni regolabili, inizialmente a zero. Non è una ricostruzione del riverbero o degli effetti della registrazione originale.
+
+Per rifinire una conversione già completata apri **Libreria → Apri sessione → Regola voce e musica**, regola i cursori e premi **Salva un nuovo mix**. Le regolazioni vengono elaborate al salvataggio, non durante la riproduzione. La nuova versione compare in Libreria e conserva `mix-before.wav` per ascoltare il mix precedente. Non vengono rigenerate né la voce né la base. Puoi ripetere, annullare ed esportare il risultato come gli altri brani.
+
+Il mix lavora su CPU con FFmpeg incluso, senza installazioni aggiuntive. Usa audio in virgola mobile durante la somma, misura i picchi e abbassa insieme voce e strumenti se necessario, con margine di 2 dB, prima di salvare WAV stereo 48 kHz / 24 bit. Conserva le tracce e le impostazioni nella nuova sessione; `mix-report.json` riporta misure e guadagni applicati. I vecchi risultati restano invariati finché non si crea una nuova versione.
+
+Il bilanciamento corregge il rapporto di volume, ma non recupera fonemi, dettagli o somiglianza vocale persi dal modello. La qualità resta da valutare all’ascolto.
+
+Collaudo 1.5: 48 test Python superati, compresi audio sintetici per differenza di volume, cursore, silenzio, effetti, durata e protezione dai picchi. Verificati nell’interfaccia i controlli persistenti, creazione e ripetizione del mix, annullamento e visualizzazione desktop/mobile, oltre al flusso di cambio voce esistente. Su un brano reale di circa 315 secondi il nuovo mix conserva la durata e misura un picco vero di −2 dBTP. Questi controlli non certificano la qualità percettiva della conversione.

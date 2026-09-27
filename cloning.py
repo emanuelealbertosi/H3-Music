@@ -1,6 +1,6 @@
 """Reference upload and automatic voice replacement, with no music regeneration for imports."""
 import hashlib,json,shutil,math,array,sys,wave
-import transcription
+import transcription, mixing
 
 def preflight(app,voice, instrumental=False):
  if not app.ENGINE.is_file() or not app.FFMPEG.is_file():raise ValueError('Completa prima install.bat.')
@@ -27,6 +27,7 @@ def enqueue(app,data):
  req=data.get('request',data);voice=str(req.get('clone_voice') or '');instrumental=data.get('kind')=='instrumental'
  preflight(app,voice,instrumental=instrumental);_,meta=transcription.source(app.DATA,req.get('import_id'))
  request={'title':str(req.get('title') or (meta['name']+(' · solo musica' if instrumental else ' · la mia voce'))).strip()[:120], 'import_id':meta['id'],'source_name':meta['name'],'clone_voice':voice,'clone_enabled':not instrumental,'style':'Base originale','lyrics':'','abc':'','notes':'','cot':'off','seed':0,'options':{}}
+ request['mix']=mixing.validate(req.get('mix'))
  ident=app.uid();app.db('INSERT INTO jobs(id,kind,status,request,created) VALUES(?,?,?,?,?)',(ident,'instrumental' if instrumental else 'clone','queued',app.jdump(request),app.now()));app.WAKE.set()
  return {'ids':[ident]}
 

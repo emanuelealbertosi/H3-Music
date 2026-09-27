@@ -5,7 +5,7 @@ from pathlib import Path
 from contextlib import contextmanager
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT))
-import transcription, execution, cloning
+import transcription, execution, cloning, mixing
 APP=sys.modules[__name__]
 DATA=Path(os.environ.get('H3_MUSIC_DATA',str(ROOT/'data')))
 OUT=DATA/'outputs'
@@ -66,6 +66,7 @@ def validate(req):
  r['clone_voice']=req.get('clone_voice','')
  if not isinstance(r['clone_voice'],str) or len(r['clone_voice'])>200:raise ValueError('Voce non valida.')
  r['options']={}
+ r['mix']=mixing.validate(req.get('mix'))
  for k,v in opt.items():
   lo,hi,_=NUMBERS[k]; v=float(v)
   if not math.isfinite(v) or not lo<=v<=hi or k in INTEGER and int(v)!=v: raise ValueError('Valore non valido: '+k)
@@ -247,23 +248,10 @@ def enqueue_voice(data):
 def mix_voice(job,d,converted,source=None,runner=None):
  """Unisce la voce convertita alla base strumentale del brano separato."""
  src=source if source is not None else OUT/job['request'].get('source_id','')
- base=[src/n for n in ('drums.wav','bass.wav','other.wav') if (src/n).exists()]
- out=d/'audio.wav'
- args=[str(FFMPEG),'-y','-v','error','-i',str(converted)]+[a for b in base for a in ('-i',str(b))]
- if base:
-  parts=''.join('[%d:a]aformat=channel_layouts=stereo[a%d];'%(i,i) for i in range(len(base)+1))
-  mix=''.join('[a%d]'%i for i in range(len(base)+1))+'amix=inputs=%d:duration=longest:normalize=0'%(len(base)+1)
-  args+=['-filter_complex',parts+mix]
- args+=['-ar','48000','-ac','2',str(out)]
- if runner:
-  runner(args)
-  if not out.exists():raise RuntimeError('Il rimissaggio non ha prodotto audio.')
- else:
-  r=run_capture(args,600)
-  if r.returncode or not out.exists(): raise RuntimeError('Il rimissaggio non è riuscito: '+(r.stderr or '')[-300:])
- return out
+ return mixing.render(APP,job,d,converted,src,runner)
 
 def enqueue(data):
+ if data.get('kind')=='remix':return mixing.enqueue(APP,data)
  if data.get('kind') in ('clone','instrumental'): return cloning.enqueue(APP,data)
  if data.get('kind')=='transcribe': return transcription.enqueue(APP,data)
  if data.get('kind')=='sep': return enqueue_separation(data)
@@ -457,7 +445,8 @@ def worker():
    job=get_job(row['id']); ident=job['id']; d=OUT/ident; d.mkdir(exist_ok=True)
    db("UPDATE jobs SET status='running',started=? WHERE id=?",(now(),ident))
   try:
-   if job['kind'] in ('clone','instrumental'):result=cloning.process(APP,job,d)
+   if job['kind']=='remix':result=mixing.process(APP,job,d)
+   elif job['kind'] in ('clone','instrumental'):result=cloning.process(APP,job,d)
    elif job['kind']=='voice':
     cloning.convert_voice(APP,job,d,OUT/job['request']['source_id']/'vocals.wav',voice_sample(job['request']['voice']),d/'voce.wav')
     result=finish_artifacts(job,d)
@@ -595,7 +584,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
      cuda=json.loads(run_capture([str(ROOT/'runtime/python/python.exe'),str(ROOT/'scripts/gpu_info.py')],15).stdout or '{}')
     except Exception: cuda={}
     motore='CUDA' if settings()['backend']=='cuda' else 'CPU'
-    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.4.2','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
+    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.5.0','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
    if path=='/api/voice-audio':
     ref=voice_sample(urllib.parse.parse_qs(parsed.query).get('name',[''])[0])
     if ref is None:raise ValueError('Campione vocale non trovato.')
