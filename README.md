@@ -80,6 +80,8 @@ Per fermare il servizio usa `Ferma-H3-Music.bat`. Chiudere la finestra mantiene 
 
 **Solo base:** nella pagina **Cambia voce**, dopo aver caricato la canzone, premi **Salva solo la musica**. Non serve un campione vocale; ascolta ed esporta il risultato dalla Libreria.
 
+Il campione può essere **parlato**: serve come riferimento del timbro, mentre canto e parole provengono dalla canzone. I brani lunghi vengono convertiti automaticamente a segmenti mantenendo la sincronizzazione con la base.
+
 I campioni restano disponibili nell’app. Il risultato completo si trova in **Libreria**, con player ed esportazione. La conversione cambia soprattutto il timbro, non corregge automaticamente parole e accenti. [Guida completa](docs/voce-su-misura.md).
 
 Servono due modelli ausiliari: **HTDemucs** (59 MB, separazione) e **SeedVC** (2,98 GB, conversione zero-shot). Li scarica l’installatore; a mano: `runtime\python\python.exe scripts\download_tools.py --tool sep` e `--tool voice`.

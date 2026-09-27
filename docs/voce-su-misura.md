@@ -53,3 +53,15 @@ La versione precedente selezionava il percorso SVC ma lasciava `f0_condition` al
 Le [istruzioni ufficiali Seed-VC](https://github.com/Plachtaa/seed-vc#usage%EF%B8%8F) richiedono F0 attivo per il canto. La correzione è verificata nei comandi, nei log di estrazione RMVPE e con confronto dell’intonazione su un estratto. Il solo completamento dei test e la presenza di audio non dimostrano intelligibilità o somiglianza: resta necessaria la verifica all’ascolto. I risultati vecchi non vengono sovrascritti; per applicare la correzione bisogna creare una nuova versione.
 
 38 test automatici superati, più prove complete GPU di sola base, cambio voce da import e generazione con cambio voce. Verificati pulsante senza campione vocale, coda, Libreria, riproduzione, esportazione MP3 e interfaccia mobile.
+
+## Brani lunghi: correzione 1.4.2
+
+La correzione F0 della 1.4.1 non bastava. Nel motore nativo incluso, `SeedVcWhisperContentEncoder::extract_16k_mono` limita l’ingresso a 480.000 campioni a 16 kHz (30 secondi) e l’uscita a 1.500 frame. Il regolatore di lunghezza estendeva poi quel contenuto alla durata di tutto il brano. Le note potevano seguire F0 mentre parole e articolazione risultavano degradate. I test precedenti su frammenti brevi non coprivano questo difetto.
+
+L’app ora converte segmenti di massimo 25 secondi, con 400 ms di sovrapposizione e raccordo lineare. Ogni segmento passa al modello la propria porzione di canto. La ricomposizione conserva il numero di campioni e non allunga la voce. La correzione si applica a brani importati, generati e al percorso manuale, su CPU e GPU, senza cambiare binari o modelli. La coda mostra il segmento in lavorazione.
+
+Riferimento: il [codice originale Seed-VC](https://github.com/Plachtaa/seed-vc/blob/main/inference.py) gestisce già separatamente il contenuto degli audio oltre 30 secondi; il motore nativo distribuito qui non implementa quel ciclo nell’encoder Whisper. La segmentazione nell’app evita quel limite. Restano possibili artefatti e variazioni di timbro alle giunzioni; intelligibilità e somiglianza vanno valutate all’ascolto.
+
+Il riferimento resta una registrazione **parlata**: non è necessario cantare. Si trasferisce il timbro sul canto già presente nella canzone. Le parti della traccia separata praticamente silenziose (RMS sotto −60 dBFS e picco sotto −40 dBFS) vengono conservate senza sintesi, evitando errori F0 e rumori inventati nelle code strumentali; i segmenti interessati sono registrati nel manifest.
+
+Collaudo 1.4.2: 42 test, copertura dei segmenti fino a 30 minuti, numero di campioni invariato nel raccordo, cancellazione e code quasi silenziose. Una prova GPU sul brano completo di circa 174 secondi produce 8 segmenti. Il confronto locale con riconoscimento vocale mostra il recupero di contenuto dopo i primi 30 secondi, ma è impreciso anche sull’originale e non è una certificazione di intelligibilità o somiglianza.
