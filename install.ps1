@@ -188,7 +188,7 @@ if ($LatestModels) {
   Write-Host '  modalita -LatestModels: prendo l ultima revisione del repository' -ForegroundColor DarkYellow
   $modelArgs += '--latest'
 }
-if ($Models -notin @('both', 'q8', 'q4')) { throw "Valore non valido per -Models: $Models (usa both, q8 o q4)." }
+if ($Models -notin @('both', 'all', 'q8', 'q4', 'bf16')) { throw "Valore non valido per -Models: $Models (usa both, all, q8, q4 o bf16)." }
 if ($Models -eq 'both') {
   Write-Host '  scarico entrambi i modelli: Q8 (4,0 GB, qualita massima) e Q4 (2,5 GB, piu veloce su CPU).' -ForegroundColor DarkYellow
   Write-Host '  Si sceglie poi dall app, in Preferenze: non serve riscaricare nulla.' -ForegroundColor DarkYellow

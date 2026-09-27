@@ -19,6 +19,8 @@ REPO = 'audio-cpp/Yue2-3B-GGUF'
 # (LFS) sono quelli dichiarati da Hugging Face per quella revisione.
 MANIFEST_MODEL = 'yue2-3b-q8_0.gguf'
 MODELS = {
+    'bf16': {'path': 'yue2-3b-bf16.gguf', 'size': 7261475392,
+             'lfs': '18fe0cda4687a565fc6f2045759f446a67f0d775ea479b87da45de90e7ddc9bc'},
     'q8': {'path': 'yue2-3b-q8_0.gguf', 'size': 4264186432,
            'lfs': 'f3a9e3b197bfd05aa4ae6ab2d4b93f6d57c8cc0ea39a4af7d151f58697c7cfb6'},
     'q4': {'path': 'yue2-3b-q4_0.gguf', 'size': 2665632320,
@@ -136,16 +138,17 @@ def download(root, f, revision, known):
 def main():
     parser = argparse.ArgumentParser(description='Scarica i pesi YuE2.')
     parser.add_argument('--latest', action='store_true', help="usa l'ultima revisione del repository invece di quella fissata")
-    parser.add_argument('--quant', choices=['both', 'q8', 'q4'], default='both',
-                        help='quali modelli scaricare: both (default) = Q8 e Q4, cosi si sceglie dall app')
+    parser.add_argument('--quant', choices=['both', 'all', 'q8', 'q4', 'bf16'], default='both',
+                        help='quali modelli scaricare: both (default) = Q8 e Q4; all aggiunge BF16; bf16 scarica solo la variante a 16 bit')
     args = parser.parse_args()
 
     root = pathlib.Path(__file__).resolve().parents[1]
     manifest = json.loads((root/'models/manifest.json').read_text(encoding='utf-8-sig'))
+    selected = ['q8','q4'] if args.quant=='both' else list(MODELS) if args.quant=='all' else [args.quant]
     wanted = []
     for f in manifest:
         if f['path'] == MANIFEST_MODEL:
-            for key in (['q8', 'q4'] if args.quant == 'both' else [args.quant]):
+            for key in selected:
                 wanted.append(dict(MODELS[key]))
         else:
             wanted.append(dict(f))
@@ -174,13 +177,14 @@ def main():
         files = wanted
         print('Revisione fissata: %s' % revision)
     print('Modelli: %s' % ', '.join('%s (%.2f GB)' % (MODELS[k]['path'], MODELS[k]['size'] / 2**30)
-                                    for k in (['q8', 'q4'] if args.quant == 'both' else [args.quant])), flush=True)
+                                    for k in selected), flush=True)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
         digests = list(pool.map(lambda f: download(root, f, revision, known.get(f['path'], {})), files))
 
     record = {'repo': REPO, 'revision': revision,
-              'files': {f['path']: {'size': f['size'], 'sha256': d} for f, d in zip(files, digests)}}
+              'files': dict(known)}
+    record['files'].update({f['path']: {'size': f['size'], 'sha256': d} for f, d in zip(files, digests)})
     record_path.write_text(json.dumps(record, indent=1), encoding='utf-8')
     print('Modelli pronti (registrati in models/installed-models.json)', flush=True)
 

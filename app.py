@@ -18,6 +18,7 @@ MODEL=ROOT/'models/yue2'
 ENGINE=ROOT/'runtime/engine/audiocpp_cli.exe'
 FFMPEG=ROOT/'runtime/ffmpeg.exe'
 DEFAULTS={'backend':'cpu','threads':8,'llm_url':'http://127.0.0.1:1234/v1','llm_model':'','paused':False,'model':'q8'}
+MUSIC_MODELS={'q4':('yue2-3b-q4_0.gguf',2665632320,'Q4'), 'q8':('yue2-3b-q8_0.gguf',4264186432,'Q8'), 'bf16':('yue2-3b-bf16.gguf',7261475392,'BF16')}
 NUMBERS={'cfg_scale':(0,20,1.0),'num_inference_steps':(1,128,32),'abc_temperature':(0,5,.7),'abc_top_p':(0,1,.9),'abc_top_k':(1,1000,30),'abc_repetition_penalty':(.01,10,1.005),'abc_penalty_window':(1,10000,100),'abc_min_tokens':(0,4096,32),'abc_max_tokens':(32,8192,4096),'semantic_temperature':(0,5,1),'semantic_top_p':(0,1,.95),'semantic_top_k':(1,1000,100),'semantic_repetition_penalty':(.01,10,1.2),'semantic_penalty_window':(1,10000,50),'semantic_min_tokens':(0,9000,200),'semantic_max_tokens':(200,12000,9000)}
 INTEGER={'num_inference_steps'}|{k for k in NUMBERS if any(s in k for s in ('top_k','window','tokens'))}
 
@@ -153,10 +154,14 @@ def ready():
    from_record={n:info['size'] for n,info in installed.items() if isinstance(info,dict) and info.get('size')}
    if from_record: required=from_record
   except Exception: pass
- missing=[n for n,size in required.items() if not (MODEL/n).exists() or (MODEL/n).stat().st_size!=size]
- main=[n for n in required if n.startswith('yue2-3b-') and n.endswith('.gguf')]
- if len(main)>1 and any(n not in missing for n in main): missing=[n for n in missing if n not in main]
- return {'ready':ENGINE.exists() and not missing,'engine':ENGINE.exists(),'missing':missing,'ffmpeg':FFMPEG.exists(),'sep':bool(separation_model()),'voice':bool(voice_model()),'voices':len(voice_list()),'model':'YuE2-3B · %s / VAE F16' % ('Q4_0' if main_model_file().startswith('yue2-3b-q4') else 'Q8_0'),'root':str(ROOT),'transcription':transcription.status(ROOT,settings()['backend'])}
+ chosen=main_model_file()
+ variant=next((k for k,v in MUSIC_MODELS.items() if v[0]==chosen),'q8')
+ expected=required.get(chosen,MUSIC_MODELS[variant][1])
+ required={n:size for n,size in required.items() if not n.startswith('yue2-3b-')}
+ required[chosen]=expected
+ missing=[n for n,size in required.items() if not (MODEL/n).is_file() or (MODEL/n).stat().st_size!=size]
+ available={k:(MODEL/v[0]).is_file() and (MODEL/v[0]).stat().st_size==installed_model_sizes().get(v[0],v[1]) for k,v in MUSIC_MODELS.items()}
+ return {'ready':ENGINE.exists() and not missing,'engine':ENGINE.exists(),'missing':missing,'ffmpeg':FFMPEG.exists(),'sep':bool(separation_model()),'voice':bool(voice_model()),'voices':len(voice_list()),'model':'YuE2-3B · %s / VAE F16' % MUSIC_MODELS[variant][2],'model_variant':variant,'available_models':available,'root':str(ROOT),'transcription':transcription.status(ROOT,settings()['backend'])}
 
 TOOLS=ROOT/'models/tools'
 def normalize_audio(src,dst,rate=44100,channels=2):
@@ -267,17 +272,20 @@ def enqueue(data):
   ids.append(ident)
  WAKE.set(); return {'ids':ids}
 
+def installed_model_sizes():
+ record=ROOT/'models/installed-models.json'
+ try:return {n:info['size'] for n,info in json.loads(record.read_text(encoding='utf-8')).get('files',{}).items() if isinstance(info,dict) and info.get('size')}
+ except (OSError,ValueError,TypeError):return {}
+
 def main_model_file():
  pref=settings().get('model','q8')
- wanted='yue2-3b-q4_0.gguf' if pref=='q4' else 'yue2-3b-q8_0.gguf'
- installed=set()
- record=ROOT/'models/installed-models.json'
- if record.exists():
-  try:
-   installed={n.split('/')[-1] for n in (json.loads(record.read_text(encoding='utf-8')).get('files') or {})}
-  except Exception: installed=set()
- for name in [wanted,'yue2-3b-q8_0.gguf','yue2-3b-q4_0.gguf','yue2-3b-bf16.gguf']:
-  if name in installed or (MODEL/name).exists(): return name
+ wanted=MUSIC_MODELS.get(pref,MUSIC_MODELS['q8'])[0]
+ # An explicit BF16 request must never silently execute a quantized model.
+ if pref=='bf16':return wanted
+ sizes=installed_model_sizes()
+ for key in dict.fromkeys([pref,'q8','q4','bf16']):
+  name,size,_=MUSIC_MODELS.get(key,MUSIC_MODELS['q8']);path=MODEL/name
+  if path.is_file() and path.stat().st_size==sizes.get(name,size):return name
  return wanted
 
 STAGES=(('seed_vc.','Conversione voce',10),('audio_out[','Separazione',60),('yue2.vae.','Finalizzazione',95),('yue2.nar.','Sintesi audio',55),('yue2.semantic.','Composizione',8),('yue2.ar.','Composizione',8),('yue2.plan.','Preparazione',2))
@@ -550,7 +558,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
      cuda=json.loads(run_capture([str(ROOT/'runtime/python/python.exe'),str(ROOT/'scripts/gpu_info.py')],15).stdout or '{}')
     except Exception: cuda={}
     motore='CUDA' if settings()['backend']=='cuda' else 'CPU'
-    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.2.0','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
+    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.3.0','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
    if path=='/api/voices': return self.json_response({'voices':voice_list(),'model':bool(voice_model())})
    if path=='/api/imports': return self.json_response({'sources':transcription.list_sources(DATA)})
    if re.fullmatch('/imports/[a-f0-9]{32}/audio',path):
@@ -595,7 +603,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
      if k in data: s[k]=data[k]
     if s['backend'] not in ('cuda','cpu'): raise ValueError('Backend non valido.')
     if s['backend']=='cuda' and settings()['backend']!='cuda': execution.check_cuda(ROOT)
-    if s['model'] not in ('q8','q4'): raise ValueError('Modello non valido.')
+    if s['model'] not in MUSIC_MODELS: raise ValueError('Modello non valido.')
+    if s['model']=='bf16' and not ((MODEL/MUSIC_MODELS['bf16'][0]).is_file() and (MODEL/MUSIC_MODELS['bf16'][0]).stat().st_size==installed_model_sizes().get(MUSIC_MODELS['bf16'][0],MUSIC_MODELS['bf16'][1])): raise ValueError('BF16 non installato o incompleto. Esegui Installa-BF16.bat dalla cartella dell’app, poi riprova.')
     s['threads']=int(s['threads'])
     if not 1<=s['threads']<=64: raise ValueError('Thread fuori intervallo.')
     s['llm_url']=local_llm_url(s['llm_url']); s['llm_model']=str(s['llm_model'])[:200]; s['paused']=bool(s['paused'])

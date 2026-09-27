@@ -1,8 +1,18 @@
 # Voce su misura per i brani generati
 
-Stima e piano, da approvare prima di implementare. Obiettivo: dare a una canzone
-composta da YuE2 una voce scelta dall'utente, a partire da un **campione parlato**
-di riferimento; il risultato finale è **cantato**.
+La conversione vocale è implementata e collaudata su CPU e GPU. Usa un campione di riferimento per cambiare il timbro della voce cantata, poi la rimixa con la base separata. Non richiede addestramento; la somiglianza va valutata all'ascolto.
+
+## Come usarla ora
+
+1. Prepara un file WAV, MP3 o FLAC con 10–30 secondi di una sola voce, pulita e senza musica. Metti un solo campione nella cartella `data/voci/MiaVoce/` (creala se manca).
+2. Apri un brano generato nella Libreria e premi **Separa voce e base**.
+3. Aspetta che il lavoro finisca, quindi apri il risultato della separazione, riconoscibile dal titolo **voce e base**.
+4. Premi **Canta con una voce** e scegli **MiaVoce**. Se hai aggiunto il campione a finestra già aperta, chiudila e riaprila.
+5. Quando la conversione è completata, apri il nuovo risultato: trovi player ed esportazione audio. `audio.wav` è il mix finale; `voce.wav` contiene la sola voce convertita.
+
+Sul PC dell'autore il percorso completo del campione è `F:\H3-Music\data\voci\MiaVoce\campione.wav`. Usa **NVIDIA CUDA** per ridurre i tempi.
+
+La conversione cambia il timbro della voce già cantata: non corregge automaticamente testo, pronuncia, accenti o melodia. Conserva la base separata del brano di partenza, con i possibili artefatti della separazione. Il pulsante attuale parte dai brani generati nella Libreria; non è un'importazione diretta di qualsiasi MP3 nella funzione di clonazione.
 
 ## 0. Stato di avanzamento
 
@@ -74,8 +84,7 @@ brano-finale.wav
 ```
 
 La conversione avviene **dopo** la generazione, come lavoro separato: così non
-si somma al picco di memoria della generazione (che sul PC da 16 GB è già al
-limite) e si può rifare la voce senza rigenerare la musica.
+si somma al picco di memoria della generazione (i due modelli non restano caricati insieme) e si può rifare la voce senza rigenerare la musica.
 
 ## 3. Costi
 

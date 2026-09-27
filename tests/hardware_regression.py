@@ -2,7 +2,7 @@
 import argparse,array,json,math,pathlib,shutil,sys,threading,time,urllib.request,uuid
 ROOT=pathlib.Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 import app,execution
-p=argparse.ArgumentParser();p.add_argument('--engine',required=True);p.add_argument('--backend',choices=['cpu','cuda'],required=True);p.add_argument('--transcribe',action='store_true');p.add_argument('--model',choices=['q4','q8'],default='q4');args=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('--engine',required=True);p.add_argument('--backend',choices=['cpu','cuda'],required=True);p.add_argument('--transcribe',action='store_true');p.add_argument('--model',choices=['q4','q8','bf16'],default='q4');args=p.parse_args()
 run=ROOT/'logs'/('hardware-'+args.backend+'-'+uuid.uuid4().hex[:8]);run.mkdir()
 app.DATA=run/'data';app.OUT=app.DATA/'outputs';app.VOCI=app.DATA/'voci';app.ENGINE=pathlib.Path(args.engine).resolve();app.init()
 assert app.settings()['backend']=='cpu'

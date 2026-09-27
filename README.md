@@ -1,6 +1,6 @@
 # H3-Music
 
-Studio musicale locale per Windows, basato su **YuE2-3B Q8** e **audio.cpp**. Interfaccia in italiano, con gli stessi colori avorio e verde petrolio e i font Manrope/Cormorant delle altre app H3. In questa installazione il motore usa la **GPU CUDA**; il motore precompilato distribuito nel repository per il clone su altri PC usa la **CPU**.
+Studio musicale locale per Windows, basato su **YuE2-3B (Q4, Q8 e BF16)** e **audio.cpp**. Interfaccia in italiano, con gli stessi colori avorio e verde petrolio e i font Manrope/Cormorant delle altre app H3. In questa installazione il motore usa la **GPU CUDA**; il motore precompilato distribuito nel repository per il clone su altri PC usa la **CPU**.
 
 ## Contenuto del repository
 
@@ -15,7 +15,9 @@ Su un PC Windows x64 senza GPU dedicata:
 
 L’installatore non richiede compilatori né Visual Studio: estrae il motore audio.cpp precompilato per CPU da `dist/`, scarica Python incorporato 3.12, FFmpeg, i pesi YuE2 (Q8 e Q4, circa 7 GB) i modelli di separazione e conversione vocale (circa 3 GB) e il runtime di trascrizione con torch CPU (SheetSage2 + MERT-v2, circa 3 GB), imposta `backend=cpu` nel database e avvia il server su `127.0.0.1:8776`. Servono circa 20 GB di spazio libero e una connessione internet; i download sono riprendibili se interrotti. Per scaricare un solo modello: `install.bat -Models q4` (oppure `q8`).
 
-I due modelli servono a scegliere: **Q8** è quello collaudato e con la qualità migliore, **Q4** occupa 2,5 GB invece di 4,0 e su CPU è più veloce, con una qualità leggermente inferiore. La scelta si fa dall’app, in **Preferenze → Modello**, e vale dal lavoro successivo: entrambi restano sul disco, quindi si passa dall’uno all’altro senza riscaricare nulla.
+In **Sistema → Modello musicale** puoi scegliere **Q4**, **Q8** oppure **BF16**. Q4 usa circa 2,5 GiB di pesi, Q8 circa 4,0 GiB; BF16 conserva i pesi a 16 bit e usa circa 6,8 GiB. Q8 resta la scelta iniziale. Il modello non cambia la precisione della trascrizione SheetSage2.
+
+BF16 è facoltativo: esegui **`Installa-BF16.bat`**, poi selezionalo in Sistema e salva le preferenze. Il download aggiuntivo è di 7,26 GB e non elimina Q4/Q8. Per installare tutto: `install.bat -Models all`; per il solo modello principale BF16: `install.bat -Models bf16`. La memoria richiesta durante la generazione supera la dimensione dei pesi. Sulla RTX 5070 Ti 16 GB è riuscita una prova italiana di circa un minuto, con 9,1 GiB di memoria GPU totale osservata. Pronuncia e accenti vanno confrontati all'ascolto: la maggiore precisione dei pesi non garantisce la correttezza linguistica. Vedi [BF16 e fedeltà delle cover](docs/BF16-e-cover.md).
 
 Al termine apri **H3-Music.exe** (o `Avvia-H3-Music.bat`): la finestra app si apre sull’app già attiva. La generazione funziona interamente su CPU: le sintesi richiedono più tempo che sulla GPU e il numero di thread è regolabile nelle impostazioni.
 
@@ -104,6 +106,8 @@ Il progetto di collaudo «Prima luce» usa un breve testo originale in inglese. 
 6. Premi **Crea una cover nello Studio**, controlla le note, descrivi il nuovo stile e inserisci il testo da cantare. Quindi genera una nuova interpretazione.
 
 La trascrizione e YuE2 condividono la coda: viene eseguito un solo modello alla volta, con rilascio della GPU alla fine di ciascun processo. Tutto il riconoscimento funziona offline dopo l’installazione. I tempi delle annotazioni partono dall’inizio del tratto scelto. I brani lunghi sono analizzati in finestre sovrapposte; per una cover è consigliabile partire da una strofa o un ritornello, entro il contesto musicale di YuE2.
+
+Una cover YuE2 usa lo spartito come guida e crea un nuovo arrangiamento. SheetSage2 ricava melodia vocale/strumentale, accordi e annotazioni, non una trascrizione completa di ogni strumento: timbri, arpeggi, voicing e dettagli della base possono cambiare. Per cambiare solo il timbro vocale di un brano generato, usa invece **Separa voce e base → Canta con una voce**, che rimixa la voce convertita con le tracce strumentali separate.
 
 ## Limiti effettivi
 

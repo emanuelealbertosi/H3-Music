@@ -20,12 +20,19 @@ const assert=require('node:assert/strict');
  await p.locator('#preferences').click();await p.getByText('Preferenze salvate',{exact:true}).first().waitFor();
  const state=await p.request.get(base+'/api/state').then(r=>r.json());
  assert.equal(state.settings.backend,'cpu');assert.equal(state.settings.threads,6);assert.equal(state.settings.model,'q4');
+ if(state.runtime.available_models?.bf16){
+  await p.locator('#s-quality').selectOption('bf16');
+  const saved=p.waitForResponse(r=>r.url().endsWith('/api/settings')&&r.request().method()==='POST');
+  await p.locator('#preferences').click();assert.equal((await saved).status(),200);
+  const bf=await p.request.get(base+'/api/state').then(r=>r.json());
+  assert.equal(bf.settings.model,'bf16');assert.equal(bf.runtime.model_variant,'bf16');assert.equal(bf.runtime.ready,true);
+ }
  await p.locator('[data-page="studio"]').click();assert.equal(await p.locator('#title').inputValue(),'Regressione interfaccia');
  await p.locator('#score-details summary').click();
  await p.locator('#abc').fill('X:1\nT:Test\nM:4/4\nL:1/8\nQ:1/4=100\nK:C\nCDEF G2G2|AGFE D2C2|');
  await p.locator('#score-view').click();await p.locator('#score-preview svg').first().waitFor();
  assert.match(await p.locator('#score-midi a').getAttribute('href'),/^data:audio\/midi/);
  await p.setViewportSize({width:390,height:844});assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
- assert.deepEqual(errors,[]);console.log('PASS: CPU default, explicit GPU option, preferences, navigation, project save, draft, score, MIDI, mobile, no JS errors');
+ assert.deepEqual(errors,[]);console.log('PASS: CPU default, explicit GPU option, BF16 when installed, preferences, navigation, project save, draft, score, MIDI, mobile, no JS errors');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exit(1)});
