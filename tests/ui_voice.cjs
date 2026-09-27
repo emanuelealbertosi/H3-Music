@@ -1,0 +1,22 @@
+const {chromium}=require('playwright');const assert=require('node:assert/strict');const fs=require('node:fs');
+(async()=>{const browser=await chromium.launch({headless:true,channel:'msedge'});try{
+ const p=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];p.on('pageerror',e=>errors.push(e.message));const base='http://127.0.0.1:8777';
+ const report=JSON.parse(fs.readFileSync('logs/automatic-voice-latest.json','utf8'));const ref=report.folder+'/reference.m4a',song=report.folder+'/song.wav';
+ await p.goto(base);await p.locator('#clone-enabled').waitFor();assert.equal(await p.locator('#clone-enabled').isChecked(),false);assert.equal(await p.locator('#studio-preview').isVisible(),false);
+ await p.locator('#clone-enabled').check();await p.locator('#studio-upload').setInputFiles(ref);await p.waitForFunction(()=>document.querySelector('#studio-voice').value.length===32);const voice=await p.locator('#studio-voice').inputValue();assert.equal(await p.locator('#studio-preview').isVisible(),true);
+ await p.locator('#title').fill('UI automatic voice');await p.locator('#style').fill('Italian pop');await p.locator('#lyrics').fill('[Verse]\nUna voce canta');
+ const generated=p.waitForResponse(r=>r.url().endsWith('/api/jobs')&&r.request().method()==='POST');await p.locator('#generate').click();const response=await generated;assert.equal(response.status(),200);const id=(await response.json()).ids[0];
+ let state=await p.request.get(base+'/api/state').then(r=>r.json());const job=state.jobs.find(j=>j.id===id);assert.equal(job.request.clone_enabled,true);assert.equal(job.request.clone_voice,voice);
+ await p.reload();await p.locator('#clone-enabled').waitFor();assert.equal(await p.locator('#clone-enabled').isChecked(),true);await p.waitForFunction(v=>document.querySelector('#studio-voice').value===v,voice);
+ await p.locator('[data-page="voice"]').click();await p.locator('#song-run').waitFor();assert.equal(await p.locator('#song-run').isDisabled(),true);
+ assert.equal(await p.locator('#song-upload').count(),1);assert.equal(await p.locator('#replacement-upload').count(),1);
+ await p.locator('#song-upload').setInputFiles(song);await p.waitForFunction(()=>document.querySelector('#song-source').value.length===32);const source=await p.locator('#song-source').inputValue();
+ await p.locator('#replacement-voice').selectOption(voice);assert.equal(await p.locator('#song-run').isEnabled(),true);
+ await p.screenshot({path:'tests/tmp-voice-ui/desktop.png',fullPage:true});await p.setViewportSize({width:390,height:844});assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);await p.screenshot({path:'tests/tmp-voice-ui/mobile.png',fullPage:true});
+ const cloned=p.waitForResponse(r=>r.url().endsWith('/api/jobs')&&r.request().method()==='POST');await p.locator('#song-run').click();const cr=await cloned;assert.equal(cr.status(),200);const cid=(await cr.json()).ids[0];state=await p.request.get(base+'/api/state').then(r=>r.json());const cj=state.jobs.find(j=>j.id===cid);assert.equal(cj.kind,'clone');assert.equal(cj.request.import_id,source);assert.equal(cj.request.clone_voice,voice);
+ const cancel=await p.request.post(base+'/api/jobs/cancel',{headers:{'X-H3-Music':'1'},data:{id:cid}});assert.equal(cancel.status(),200);
+ const retry=await p.request.post(base+'/api/jobs/retry',{headers:{'X-H3-Music':'1'},data:{id:cid}});assert.equal(retry.status(),200);
+ await p.locator('[data-page="voice"]').click();await p.waitForFunction(v=>document.querySelector('#replacement-voice').value===v,voice);
+ await p.locator('#replacement-upload').setInputFiles(ref);await p.waitForFunction(v=>document.querySelector('#replacement-voice').value!==v,voice);assert.equal(await p.locator('#song-source').inputValue(),source);
+ assert.deepEqual(errors,[]);console.log('PASS: checkbox, uploads, reusable references, saved project, generation payload, imported-song payload, cancel/retry, desktop/mobile and no JS errors');
+ }finally{await browser.close()}})().catch(e=>{console.error(e);process.exit(1)});

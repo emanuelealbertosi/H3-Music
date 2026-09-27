@@ -74,12 +74,11 @@ Per fermare il servizio usa `Ferma-H3-Music.bat`. Chiudere la finestra mantiene 
 
 ## Voce su misura (sperimentale)
 
-Dà a un brano generato una voce scelta da te, partendo da un **campione parlato**.
+**Nuovo brano:** nello Studio attiva **Clona · usa la mia voce**, carica un campione pulito di 10–30 secondi e premi **Genera il brano**. L’app esegue automaticamente generazione, separazione, conversione e rimix.
 
-1. Genera un brano e aprine il dettaglio.
-2. Premi **Separa voce e base**: il motore divide il brano in voce, batteria, basso e altro.
-3. Metti un campione parlato di 10-30 secondi, pulito e senza musica, in `data\voci\<nome>\` (wav, mp3 o flac).
-4. Nel dettaglio della separazione premi **Canta con una voce** e scegli la voce: la traccia vocale viene convertita verso quel timbro e rimissata con la base strumentale.
+**Canzone esistente:** apri **Cambia voce**, carica canzone e campione, poi premi **Cambia la voce · mantieni la base**. La base viene separata dall’originale e non viene rigenerata con YuE2. Il file caricato resta intatto; sono possibili artefatti della separazione.
+
+I campioni restano disponibili nell’app. Il risultato completo si trova in **Libreria**, con player ed esportazione. La conversione cambia soprattutto il timbro, non corregge automaticamente parole e accenti. [Guida completa](docs/voce-su-misura.md).
 
 Servono due modelli ausiliari: **HTDemucs** (59 MB, separazione) e **SeedVC** (2,98 GB, conversione zero-shot). Li scarica l’installatore; a mano: `runtime\python\python.exe scripts\download_tools.py --tool sep` e `--tool voice`.
 

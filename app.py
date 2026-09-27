@@ -5,7 +5,7 @@ from pathlib import Path
 from contextlib import contextmanager
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT))
-import transcription, execution
+import transcription, execution, cloning
 APP=sys.modules[__name__]
 DATA=Path(os.environ.get('H3_MUSIC_DATA',str(ROOT/'data')))
 OUT=DATA/'outputs'
@@ -61,6 +61,10 @@ def validate(req):
  if not 0<=r['seed']<2**53: raise ValueError('Seed fuori intervallo (0–2^53).')
  opt=req.get('options',{})
  if not isinstance(opt,dict) or set(opt)-set(NUMBERS): raise ValueError('Parametri avanzati non riconosciuti.')
+ r['clone_enabled']=req.get('clone_enabled',False)
+ if not isinstance(r['clone_enabled'],bool):raise ValueError('Scelta della voce non valida.')
+ r['clone_voice']=req.get('clone_voice','')
+ if not isinstance(r['clone_voice'],str) or len(r['clone_voice'])>200:raise ValueError('Voce non valida.')
  r['options']={}
  for k,v in opt.items():
   lo,hi,_=NUMBERS[k]; v=float(v)
@@ -211,8 +215,12 @@ def voice_list():
  if VOCI.exists():
   for d in sorted(VOCI.iterdir()):
    if not d.is_dir(): continue
-   samples=[p for p in sorted(d.iterdir()) if p.suffix.lower() in ('.wav','.mp3','.flac','.ogg','.m4a')]
-   if samples: out.append({'name':d.name,'file':samples[0].name,'bytes':samples[0].stat().st_size})
+   samples=[p for p in sorted(d.iterdir()) if p.is_file() and p.suffix.lower() in transcription.EXTENSIONS]
+   if samples:
+    label=d.name
+    try:label=json.loads((d/'voice.json').read_text(encoding='utf-8')).get('label') or label
+    except (OSError,ValueError):pass
+    out.append({'name':d.name,'label':label,'file':samples[0].name,'bytes':samples[0].stat().st_size})
  return out
 
 def voice_sample(name):
@@ -236,9 +244,9 @@ def enqueue_voice(data):
  db('INSERT INTO jobs(id,project_id,kind,status,request,created) VALUES(?,?,?,?,?,?)',(new,'','voice','queued',jdump(req),now()))
  WAKE.set(); return {'ids':[new]}
 
-def mix_voice(job,d,converted):
+def mix_voice(job,d,converted,source=None,runner=None):
  """Unisce la voce convertita alla base strumentale del brano separato."""
- src=OUT/job['request'].get('source_id','')
+ src=source if source is not None else OUT/job['request'].get('source_id','')
  base=[src/n for n in ('drums.wav','bass.wav','other.wav') if (src/n).exists()]
  out=d/'audio.wav'
  args=[str(FFMPEG),'-y','-v','error','-i',str(converted)]+[a for b in base for a in ('-i',str(b))]
@@ -247,11 +255,16 @@ def mix_voice(job,d,converted):
   mix=''.join('[a%d]'%i for i in range(len(base)+1))+'amix=inputs=%d:duration=longest:normalize=0'%(len(base)+1)
   args+=['-filter_complex',parts+mix]
  args+=['-ar','48000','-ac','2',str(out)]
- r=run_capture(args,600)
- if r.returncode or not out.exists(): raise RuntimeError('Il rimissaggio non è riuscito: '+(r.stderr or '')[-300:])
+ if runner:
+  runner(args)
+  if not out.exists():raise RuntimeError('Il rimissaggio non ha prodotto audio.')
+ else:
+  r=run_capture(args,600)
+  if r.returncode or not out.exists(): raise RuntimeError('Il rimissaggio non è riuscito: '+(r.stderr or '')[-300:])
  return out
 
 def enqueue(data):
+ if data.get('kind')=='clone': return cloning.enqueue(APP,data)
  if data.get('kind')=='transcribe': return transcription.enqueue(APP,data)
  if data.get('kind')=='sep': return enqueue_separation(data)
  if data.get('kind')=='voice': return enqueue_voice(data)
@@ -262,6 +275,7 @@ def enqueue(data):
  if not req['style'] or not req['lyrics']: raise ValueError('Inserisci stile musicale e testo.')
  kind=data.get('kind','generate')
  if kind not in ('generate','plan'): raise ValueError('Operazione non valida.')
+ if kind=='generate' and req['clone_enabled']:cloning.preflight(APP,req['clone_voice'])
  if kind=='plan' and req['cot']=='off': raise ValueError('La composizione richiede Melodia o Melodia e accordi.')
  count=int(data.get('count',1))
  if not 1<=count<=8: raise ValueError('Scegli da 1 a 8 varianti.')
@@ -387,6 +401,52 @@ def finish_artifacts(job,d):
  write_json(d/'manifest.json',{'sha256':manifest,'engine':'audio.cpp dev + H3 artifact extension','model':'audio-cpp/Yue2-3B-GGUF','result':result})
  return result
 
+class JobCancelled(Exception):pass
+
+def check_cancel(ident):
+ row=db('SELECT status FROM jobs WHERE id=?',(ident,),True)
+ if not row or row['status'] in ('cancelled','cancelling'):raise JobCancelled()
+
+def run_job_process(job,d,args,append=False,phase=None):
+ ident=job['id']
+ started=time.time()
+ with (d/'engine.log').open('ab' if append else 'wb') as log:
+  with LOCK:
+   check_cancel(ident)
+   p=subprocess.Popen(args,cwd=ROOT,stdout=log,stderr=subprocess.STDOUT,creationflags=HIDDEN)
+   ACTIVE[ident]=p
+  # Avanzamento: per la trascrizione lo scrive il suo worker, per la
+  # generazione lo ricaviamo qui dal registro del motore.
+  if job['kind']!='transcribe':
+   backend=settings()['backend']; progress_file=d/'progress.json'
+   while p.poll() is None:
+    time.sleep(1)
+    try: write_json(progress_file,{'stage':phase[0],'pct':phase[1],'elapsed_s':int(time.time()-started)} if phase else engine_progress(d,started,backend))
+    except Exception: pass
+  rc=p.wait()
+ if job['kind']!='transcribe':
+  try: (d/'progress.json').unlink()
+  except OSError: pass
+ with LOCK:
+  ACTIVE.pop(ident,None)
+  status=db('SELECT status FROM jobs WHERE id=?',(ident,),True)['status']
+ if status in ('cancelling','cancelled'):
+  raise JobCancelled()
+ if rc:
+  progress=d/'progress.json'
+  reason=json.loads(progress.read_text(encoding='utf-8')).get('message','') if job['kind']=='transcribe' and progress.exists() else ''
+  if not reason:
+   tail=(d/'engine.log').read_text(encoding='utf-8',errors='replace')[-4000:] if (d/'engine.log').exists() else ''
+   if 'unsupported model family hint' in tail:
+    reason='Il motore installato non include il modello richiesto (per esempio la separazione). Il motore CPU distribuito lo include; su un PC con GPU ricompila con scripts/build_engine_cuda.ps1.'
+   elif 'failed to allocate' in tail or 'GGML_ASSERT' in tail:
+    mem=system_memory()
+    if 'cudaMalloc' in tail or 'CUDA0 buffer' in tail or 'device 0' in tail:
+     reason='Memoria video insufficiente: la scheda non ha spazio per il grafo del motore. Chiudi le altre applicazioni che usano la GPU (o scegli backend CPU in Preferenze) e riprova.'
+    else:
+     reason='Memoria insufficiente: il motore non ha potuto prenotare la memoria che gli serve%s. Chiudi le altre applicazioni, aumenta il file di paging di Windows (Impostazioni di sistema > Prestazioni > Avanzate > Memoria virtuale) oppure scegli il modello Q4 in Preferenze: occupa 2,5 GB invece di 4.'%(' (limite attuale %.0f GB)'%mem['commit_limit_gb'] if mem.get('commit_limit_gb') else '')
+  raise RuntimeError(reason or f'Il motore si è fermato (codice {rc}). Apri il registro per i dettagli.')
+
 def worker():
  while True:
   WAKE.wait(1); WAKE.clear()
@@ -397,46 +457,20 @@ def worker():
    job=get_job(row['id']); ident=job['id']; d=OUT/ident; d.mkdir(exist_ok=True)
    db("UPDATE jobs SET status='running',started=? WHERE id=?",(now(),ident))
   try:
-   args=command_for(job,d)
-   started=time.time()
-   with (d/'engine.log').open('wb') as log:
-    with LOCK:
-     if db('SELECT status FROM jobs WHERE id=?',(ident,),True)['status']=='cancelled': continue
-     p=subprocess.Popen(args,cwd=ROOT,stdout=log,stderr=subprocess.STDOUT,creationflags=HIDDEN)
-     ACTIVE[ident]=p
-    # Avanzamento: per la trascrizione lo scrive il suo worker, per la
-    # generazione lo ricaviamo qui dal registro del motore.
-    if job['kind']!='transcribe':
-     backend=settings()['backend']; progress_file=d/'progress.json'
-     while p.poll() is None:
-      time.sleep(3)
-      try: progress_file.write_text(jdump(engine_progress(d,started,backend)),encoding='utf-8')
-      except Exception: pass
-    rc=p.wait()
-   if job['kind']!='transcribe':
-    try: (d/'progress.json').unlink()
-    except OSError: pass
+   if job['kind']=='clone':result=cloning.process(APP,job,d)
+   else:
+    run_job_process(job,d,command_for(job,d))
+    result=finish_artifacts(job,d)
+    if job['kind']=='generate' and job['request'].get('clone_enabled'):
+     result.update(cloning.process(APP,job,d))
+     manifest=json.loads((d/'manifest.json').read_text(encoding='utf-8'))
+     manifest['sha256']['audio.wav']=json.loads((d/'voice-manifest.json').read_text(encoding='utf-8'))['sha256']['audio.wav'];manifest['result']=result;write_json(d/'manifest.json',manifest)
    with LOCK:
-    ACTIVE.pop(ident,None)
-    status=db('SELECT status FROM jobs WHERE id=?',(ident,),True)['status']
-   if status in ('cancelling','cancelled'):
-    db("UPDATE jobs SET status='cancelled',finished=? WHERE id=?",(now(),ident)); continue
-   if rc:
-    progress=d/'progress.json'
-    reason=json.loads(progress.read_text(encoding='utf-8')).get('message','') if job['kind']=='transcribe' and progress.exists() else ''
-    if not reason:
-     tail=(d/'engine.log').read_text(encoding='utf-8',errors='replace')[-4000:] if (d/'engine.log').exists() else ''
-     if 'unsupported model family hint' in tail:
-      reason='Il motore installato non include il modello richiesto (per esempio la separazione). Il motore CPU distribuito lo include; su un PC con GPU ricompila con scripts/build_engine_cuda.ps1.'
-     elif 'failed to allocate' in tail or 'GGML_ASSERT' in tail:
-      mem=system_memory()
-      if 'cudaMalloc' in tail or 'CUDA0 buffer' in tail or 'device 0' in tail:
-       reason='Memoria video insufficiente: la scheda non ha spazio per il grafo del motore. Chiudi le altre applicazioni che usano la GPU (o scegli backend CPU in Preferenze) e riprova.'
-      else:
-       reason='Memoria insufficiente: il motore non ha potuto prenotare la memoria che gli serve%s. Chiudi le altre applicazioni, aumenta il file di paging di Windows (Impostazioni di sistema > Prestazioni > Avanzate > Memoria virtuale) oppure scegli il modello Q4 in Preferenze: occupa 2,5 GB invece di 4.'%(' (limite attuale %.0f GB)'%mem['commit_limit_gb'] if mem.get('commit_limit_gb') else '')
-    raise RuntimeError(reason or f'Il motore si è fermato (codice {rc}). Apri il registro per i dettagli.')
-   result=finish_artifacts(job,d)
-   db("UPDATE jobs SET status='completed',finished=?,result=? WHERE id=?",(now(),jdump(result),ident))
+    check_cancel(ident)
+    db("UPDATE jobs SET status='completed',finished=?,result=? WHERE id=?",(now(),jdump(result),ident))
+  except JobCancelled:
+   with LOCK:ACTIVE.pop(ident,None)
+   db("UPDATE jobs SET status='cancelled',finished=? WHERE id=?",(now(),ident))
   except Exception as e:
    with LOCK: ACTIVE.pop(ident,None)
    db("UPDATE jobs SET status='failed',finished=?,error=? WHERE id=?",(now(),str(e),ident))
@@ -558,7 +592,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
      cuda=json.loads(run_capture([str(ROOT/'runtime/python/python.exe'),str(ROOT/'scripts/gpu_info.py')],15).stdout or '{}')
     except Exception: cuda={}
     motore='CUDA' if settings()['backend']=='cuda' else 'CPU'
-    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.3.0','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
+    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.4.0','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
+   if path=='/api/voice-audio':
+    ref=voice_sample(urllib.parse.parse_qs(parsed.query).get('name',[''])[0])
+    if ref is None:raise ValueError('Campione vocale non trovato.')
+    return self.file_response(ref)
    if path=='/api/voices': return self.json_response({'voices':voice_list(),'model':bool(voice_model())})
    if path=='/api/imports': return self.json_response({'sources':transcription.list_sources(DATA)})
    if re.fullmatch('/imports/[a-f0-9]{32}/audio',path):
@@ -591,6 +629,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
    elif path=='/api/projects/archive':
     if db("SELECT id FROM jobs WHERE project_id=? AND status IN ('running','queued','cancelling')",(data['id'],),True): raise ValueError('Termina o annulla prima le generazioni del progetto.')
     db('UPDATE projects SET archived=1 WHERE id=?',(data['id'],)); result={'ok':True}
+   elif path=='/api/voices/import': result=cloning.import_voice(APP,data)
    elif path=='/api/jobs': result=enqueue(data)
    elif path=='/api/jobs/cancel': result=cancel(data['id'])
    elif path=='/api/jobs/favorite':
