@@ -76,6 +76,8 @@ Per fermare il servizio usa `Ferma-H3-Music.bat`. Chiudere la finestra mantiene 
 
 **Nuovo brano:** nello Studio attiva **Clona · usa la mia voce**, carica un campione pulito di 10–30 secondi e premi **Genera il brano**. L’app esegue automaticamente generazione, separazione, conversione e rimix.
 
+**Qualità vocale (1.5.1):** sotto il campione scegli **Minima (30 passaggi)**, **Media (50)** o **Alta (100)**. La scelta viene salvata e vale anche per Cambia voce, CPU/GPU e tutti i segmenti dei brani lunghi. Minima mantiene il comportamento precedente; più passaggi richiedono più tempo e non garantiscono una voce priva di artefatti.
+
 **Canzone esistente:** apri **Cambia voce**, carica canzone e campione, poi premi **Cambia la voce · mantieni la base**. La base viene separata dall’originale e non viene rigenerata con YuE2. Il file caricato resta intatto; sono possibili artefatti della separazione.
 
 **Solo base:** nella pagina **Cambia voce**, dopo aver caricato la canzone, premi **Salva solo la musica**. Non serve un campione vocale; ascolta ed esporta il risultato dalla Libreria.

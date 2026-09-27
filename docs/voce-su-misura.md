@@ -8,6 +8,16 @@
 4. Premi **Genera il brano**. Un solo lavoro in coda genera, separa, converte la voce e rimixa.
 5. Apri il risultato in **Libreria** per ascoltarlo o esportarlo.
 
+### Qualità della conversione vocale
+
+Prima di avviare, scegli **Qualità della conversione vocale** sotto il campione di voce:
+
+- **Minima · 30 passaggi**: valore predefinito, uguale alle versioni precedenti.
+- **Media · 50 passaggi**: più elaborazione per la conversione.
+- **Alta · 100 passaggi**: l'opzione con più passaggi e maggiore attesa.
+
+La scelta è disponibile nello Studio, in Cambia voce e in **Canta con una voce** dopo la separazione. Viene salvata con il progetto o la richiesta, conservata da **Ripeti** e applicata a ogni segmento del brano, sia su CPU sia su GPU. I vecchi progetti usano 30 passaggi. Non modifica i passaggi di generazione musicale YuE2 né il semplice rimix: per cambiare qualità serve una nuova conversione vocale. Più passaggi possono migliorare il risultato, ma non garantiscono l'eliminazione di ruvidità o artefatti.
+
 ## Canzone esistente: conserva la musica
 
 1. Apri **Cambia voce** dal menu, oppure dal collegamento nello Studio.

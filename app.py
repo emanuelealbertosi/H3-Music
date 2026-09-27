@@ -67,6 +67,7 @@ def validate(req):
  if not isinstance(r['clone_voice'],str) or len(r['clone_voice'])>200:raise ValueError('Voce non valida.')
  r['options']={}
  r['mix']=mixing.validate(req.get('mix'))
+ r['voice_steps']=cloning.voice_steps(req.get('voice_steps',30))
  for k,v in opt.items():
   lo,hi,_=NUMBERS[k]; v=float(v)
   if not math.isfinite(v) or not lo<=v<=hi or k in INTEGER and int(v)!=v: raise ValueError('Valore non valido: '+k)
@@ -231,6 +232,7 @@ def voice_sample(name):
 
 def enqueue_voice(data):
  """Accoda la conversione della voce cantata verso una voce di riferimento."""
+ data=data.get('request',data)
  if not ENGINE.exists(): raise ValueError('Il motore non è installato.')
  if not voice_model(): raise ValueError('Il modello di conversione vocale non è installato: esegui scripts/download_tools.py --tool voice.')
  ref=voice_sample(str(data.get('voice') or ''))
@@ -241,6 +243,7 @@ def enqueue_voice(data):
  try: title=get_job(ident)['request'].get('title') or title
  except ValueError: pass
  req={'title':title+' · voce '+ref.parent.name,'style':'','lyrics':'','abc':'','notes':'','seed':0,'options':{},'source_id':ident,'voice':ref.parent.name}
+ req['voice_steps']=cloning.voice_steps(data.get('voice_steps',30))
  new=uid()
  db('INSERT INTO jobs(id,project_id,kind,status,request,created) VALUES(?,?,?,?,?,?)',(new,'','voice','queued',jdump(req),now()))
  WAKE.set(); return {'ids':[new]}
@@ -318,7 +321,7 @@ def command_for(job,d):
  if job['kind']=='transcribe': return transcription.command(APP,job,d)
  if job['kind']=='voice':
   s=settings(); r=job['request']
-  return cloning.voice_command(APP,OUT/r.get('source_id','')/'vocals.wav',voice_sample(r.get('voice')),d/'voce.wav',s)
+  return cloning.voice_command(APP,OUT/r.get('source_id','')/'vocals.wav',voice_sample(r.get('voice')),d/'voce.wav',s,r.get('voice_steps',30))
  if job['kind']=='sep':
   s=settings()
   inp=normalize_audio(source_audio(job['request'].get('source_id')),d/'input.wav')
@@ -365,7 +368,7 @@ def finish_artifacts(job,d):
   final=mix_voice(job,d,converted)
   try: dur=audio_info(final).get('duration',0)
   except Exception: dur=0
-  return {'voice':job['request'].get('voice',''),'source_id':job['request'].get('source_id',''),'duration':dur}
+  return {'voice':job['request'].get('voice',''),'source_id':job['request'].get('source_id',''),'duration':dur,'voice_steps':cloning.voice_steps(job['request'].get('voice_steps',30))}
  if job['kind']=='sep':
   stems=[n for n in ('vocals.wav','drums.wav','bass.wav','other.wav') if (d/n).exists()]
   if not stems: raise RuntimeError('La separazione non ha prodotto file utilizzabili.')
@@ -584,7 +587,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
      cuda=json.loads(run_capture([str(ROOT/'runtime/python/python.exe'),str(ROOT/'scripts/gpu_info.py')],15).stdout or '{}')
     except Exception: cuda={}
     motore='CUDA' if settings()['backend']=='cuda' else 'CPU'
-    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.5.0','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
+    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.5.1','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
    if path=='/api/voice-audio':
     ref=voice_sample(urllib.parse.parse_qs(parsed.query).get('name',[''])[0])
     if ref is None:raise ValueError('Campione vocale non trovato.')

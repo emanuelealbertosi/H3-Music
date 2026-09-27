@@ -2,6 +2,10 @@
 import hashlib,json,shutil,math,array,sys,wave
 import transcription, mixing
 
+def voice_steps(value=30):
+ if type(value) is not int or value not in (30,50,100):raise ValueError('Qualità voce non valida: scegli 30, 50 o 100 passaggi.')
+ return value
+
 def preflight(app,voice, instrumental=False):
  if not app.ENGINE.is_file() or not app.FFMPEG.is_file():raise ValueError('Completa prima install.bat.')
  if not app.separation_model():raise ValueError('Manca il modello di separazione: esegui install.bat per completarlo.')
@@ -28,6 +32,7 @@ def enqueue(app,data):
  preflight(app,voice,instrumental=instrumental);_,meta=transcription.source(app.DATA,req.get('import_id'))
  request={'title':str(req.get('title') or (meta['name']+(' · solo musica' if instrumental else ' · la mia voce'))).strip()[:120], 'import_id':meta['id'],'source_name':meta['name'],'clone_voice':voice,'clone_enabled':not instrumental,'style':'Base originale','lyrics':'','abc':'','notes':'','cot':'off','seed':0,'options':{}}
  request['mix']=mixing.validate(req.get('mix'))
+ request['voice_steps']=voice_steps(req.get('voice_steps',30))
  ident=app.uid();app.db('INSERT INTO jobs(id,kind,status,request,created) VALUES(?,?,?,?,?)',(ident,'instrumental' if instrumental else 'clone','queued',app.jdump(request),app.now()));app.WAKE.set()
  return {'ids':[ident]}
 
@@ -59,6 +64,7 @@ def process(app,job,d):
  app.check_cancel(job['id'])
  final=app.mix_voice(job,d,converted,source=stems,runner=lambda args:app.run_job_process(job,d,args,append=True,phase=('Rimix con la base',95)))
  app.check_cancel(job['id']);result=app.audio_info(final)|{'voice':req['clone_voice'],'cloned':True,'pitch_conditioning':True,'voice_pipeline':'segmented-v1','original_preserved':True,'source_kind':'import' if job['kind']=='clone' else 'generated'}
+ result['voice_steps']=voice_steps(req.get('voice_steps',30))
  if job['kind'] in ('clone','instrumental'):result['import_id']=req['import_id']
  def digest(p):
   with p.open('rb') as f:return hashlib.file_digest(f,'sha256').hexdigest()
@@ -66,10 +72,10 @@ def process(app,job,d):
  return result
 
 
-def voice_command(app,source,reference,output,settings=None):
+def voice_command(app,source,reference,output,settings=None,steps=30):
  s=settings or app.settings()
  # The singing checkpoint needs pitch conditioning; the native default is false.
- return [str(app.ENGINE),'--task','svc','--family','seed_vc','--model',str(app.voice_model()),'--backend',s['backend'],'--threads',str(s['threads']),'--task-route','v1_svc','--request-option','f0_condition=true','--request-option','auto_f0_adjust=false','--request-option','semitone_shift=0','--audio',str(source),'--voice-ref',str(reference),'--out',str(output),'--log','--metrics']
+ return [str(app.ENGINE),'--task','svc','--family','seed_vc','--model',str(app.voice_model()),'--backend',s['backend'],'--threads',str(s['threads']),'--task-route','v1_svc','--request-option',f'num_inference_steps={voice_steps(steps)}','--request-option','f0_condition=true','--request-option','auto_f0_adjust=false','--request-option','semitone_shift=0','--audio',str(source),'--voice-ref',str(reference),'--out',str(output),'--log','--metrics']
 
 
 VOICE_RATE=44100
@@ -117,23 +123,24 @@ def quiet_voice_segment(path):
 
 def convert_voice(app,job,d,source,reference,output,settings=None):
  settings=settings or app.settings()
+ steps=voice_steps(job['request'].get('voice_steps',30))
  duration=app.audio_info(source)['duration']
  if not math.isfinite(duration) or duration<=0:raise ValueError('La traccia vocale è vuota.')
  segments=voice_segments(round(duration*VOICE_RATE))
  if len(segments)==1:
-  app.run_job_process(job,d,voice_command(app,source,reference,output,settings),append=True,phase=('Applicazione della tua voce',65));return
+  app.run_job_process(job,d,voice_command(app,source,reference,output,settings,steps),append=True,phase=(f'Applicazione della tua voce · {steps} passaggi',65));return
  folder=d/'voice-segments';folder.mkdir(exist_ok=True);paths=[];quiet=[]
  for index,(start,end) in enumerate(segments):
   app.check_cancel(job['id']);src=folder/f'{index:03d}-source.wav';raw=folder/f'{index:03d}-raw.wav';aligned=folder/f'{index:03d}.wav'
-  phase=(f'Applicazione della tua voce · {index+1}/{len(segments)}',65+int(27*index/len(segments)))
+  phase=(f'Applicazione della tua voce · {index+1}/{len(segments)} · {steps} passaggi',65+int(27*index/len(segments)))
   app.run_job_process(job,d,[str(app.FFMPEG),'-y','-v','error','-nostdin','-i',str(source),'-af',f'aresample={VOICE_RATE},atrim=start_sample={start}:end_sample={end},asetpts=PTS-STARTPTS','-ar',str(VOICE_RATE),'-ac','1',str(src)],append=True,phase=phase)
   if quiet_voice_segment(src):
    shutil.copy2(src,aligned);paths.append(aligned);quiet.append(index);continue
-  app.run_job_process(job,d,voice_command(app,src,reference,raw,settings),append=True,phase=phase)
+  app.run_job_process(job,d,voice_command(app,src,reference,raw,settings,steps),append=True,phase=phase)
   # The vocoder rounds to mel hops; only pad/trim the tiny rounding difference.
   produced=app.audio_info(raw)['duration']
   if abs(produced-(end-start)/VOICE_RATE)>.25:raise RuntimeError('Durata della voce convertita incoerente: il rimix è stato fermato.')
   app.run_job_process(job,d,[str(app.FFMPEG),'-y','-v','error','-nostdin','-i',str(raw),'-af',f'apad=whole_len={end-start},atrim=end_sample={end-start}','-ar',str(VOICE_RATE),'-ac','1','-c:a','pcm_s16le',str(aligned)],append=True,phase=phase)
   paths.append(aligned)
  join_voice_segments(paths,output,lambda:app.check_cancel(job['id']))
- app.write_json(d/'voice-segments.json',{'sample_rate':VOICE_RATE,'overlap_samples':VOICE_OVERLAP,'quiet_passthrough':quiet,'segments':[{'start_sample':a,'end_sample':b} for a,b in segments]})
+ app.write_json(d/'voice-segments.json',{'sample_rate':VOICE_RATE,'voice_steps':steps,'overlap_samples':VOICE_OVERLAP,'quiet_passthrough':quiet,'segments':[{'start_sample':a,'end_sample':b} for a,b in segments]})

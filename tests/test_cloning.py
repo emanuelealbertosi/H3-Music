@@ -28,6 +28,36 @@ class CloningTests(unittest.TestCase):
   self.assertFalse(app.validate({})['clone_enabled']);self.assertEqual(app.validate({'clone_enabled':True,'clone_voice':'x'})['clone_voice'],'x')
   with self.assertRaises(ValueError):app.validate({'clone_enabled':'yes'})
   with self.assertRaises(ValueError):cloning.preflight(app,'missing voice')
+ def test_voice_quality_validation_and_snapshots(self):
+  self.assertEqual(app.validate({})['voice_steps'],30)
+  for steps in (30,50,100):
+   self.assertEqual(app.validate({'voice_steps':steps,'options':{'num_inference_steps':8}})['voice_steps'],steps)
+   with patch.object(cloning,'preflight',return_value=app.voice_sample(self.voice['name'])):
+    request={'import_id':self.source_id,'clone_voice':self.voice['name'],'voice_steps':steps}
+    ident=app.enqueue({'kind':'clone','request':request})['ids'][0]
+    saved=app.get_job(ident)['request'];request['voice_steps']=30
+    self.assertEqual(saved['voice_steps'],steps)
+    retried=app.enqueue({'kind':'clone','request':saved})['ids'][0]
+    self.assertEqual(app.get_job(retried)['request'],saved)
+  for bad in (None,True,30.0,'50',0,31,101,[],{}):
+   with self.assertRaises(ValueError):app.validate({'voice_steps':bad})
+ def test_voice_quality_commands_cpu_and_gpu(self):
+  for backend in ('cpu','cuda'):
+   for steps in (30,50,100):
+    args=cloning.voice_command(app,'a','b','c',{'backend':backend,'threads':2},steps)
+    self.assertIn(f'num_inference_steps={steps}',args)
+    self.assertEqual(args[args.index('--backend')+1],backend)
+ def test_voice_quality_all_long_segments(self):
+  job,d=self.queued();job['request']['voice_steps']=100;source=d/'source.wav';calls=[]
+  parts=cloning.voice_segments(60*cloning.VOICE_RATE)
+  def info(path):
+   if path==source:return {'duration':60}
+   index=int(path.name.split('-')[0]);a,b=parts[index];return {'duration':(b-a)/cloning.VOICE_RATE}
+  with patch.object(app,'audio_info',side_effect=info),patch.object(app,'run_job_process',side_effect=lambda j,d,args,**kw:calls.append(args)),patch.object(cloning,'quiet_voice_segment',return_value=False),patch.object(cloning,'join_voice_segments'):
+   cloning.convert_voice(app,job,d,source,d/'ref.wav',d/'voice.wav',{'backend':'cpu','threads':2})
+  svc=[args for args in calls if '--task' in args]
+  self.assertEqual(len(svc),len(parts));self.assertTrue(all('num_inference_steps=100' in args for args in svc))
+  self.assertEqual(json.loads((d/'voice-segments.json').read_text())['voice_steps'],100)
  def test_import_independent_from_yue2_and_cancel_before_launch(self):
   with patch.object(app,'ready',side_effect=AssertionError('YuE2 must not be queried')):job,d=self.queued()
   app.cancel(job['id'])
