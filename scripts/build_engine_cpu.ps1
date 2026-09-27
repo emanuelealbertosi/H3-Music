@@ -16,11 +16,13 @@
 
 param(
   [string]$VsRoot = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools',
-  [string]$BuildDir = 'F:\H3-Music\vendor\audio.cpp\build\cpu-vs'
+  [string]$BuildDir = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+
+if (-not $BuildDir) { $BuildDir = Join-Path $root 'vendor\audio.cpp\build\cpu-vs' }
 
 # --- ambiente MSVC ---
 $vcvars = Join-Path $VsRoot 'VC\Auxiliary\Build\vcvarsall.bat'
@@ -33,7 +35,7 @@ Write-Host 'Configurazione CMake (Visual Studio 17 2022, x64, CPU)...'
 cmake -S "$root\vendor\audio.cpp" -B $BuildDir -G 'Visual Studio 17 2022' -A x64 `
   '-DCMAKE_C_FLAGS=/DWIN32 /D_WINDOWS /utf-8' `
   '-DCMAKE_CXX_FLAGS=/DWIN32 /D_WINDOWS /EHsc /utf-8' `
-  -DENGINE_ENABLE_CUDA=OFF -DENGINE_ENABLE_NATIVE_CPU=OFF `
+  -DAUDIOCPP_DEPLOYMENT_BUILD=ON -DENGINE_ENABLE_CUDA=OFF -DENGINE_ENABLE_NATIVE_CPU=OFF `
   -DENGINE_ENABLE_LLAMAFILE=ON -DENGINE_ENABLE_OPENMP=ON
 if ($LASTEXITCODE -ne 0) { throw 'Configurazione CMake fallita.' }
 

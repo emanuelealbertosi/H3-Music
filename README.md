@@ -13,7 +13,7 @@ Su un PC Windows x64 senza GPU dedicata:
 1. `git clone https://github.com/emanuelealbertosi/H3-Music.git`
 2. Nella cartella del clone, esegui `install.bat` (oppure `powershell -ExecutionPolicy Bypass -File install.ps1`).
 
-L’installatore non richiede compilatori né Visual Studio: estrae il motore audio.cpp precompilato per CPU da `dist/`, scarica Python incorporato 3.12, FFmpeg, i pesi YuE2 (Q8 e Q4, circa 7 GB) e il runtime di trascrizione con torch CPU (SheetSage2 + MERT-v2, circa 3 GB), imposta `backend=cpu` nel database e avvia il server su `127.0.0.1:8776`. Servono circa 20 GB di spazio libero e una connessione internet; i download sono riprendibili se interrotti. Per scaricare un solo modello: `install.bat -Models q4` (oppure `q8`).
+L’installatore non richiede compilatori né Visual Studio: estrae il motore audio.cpp precompilato per CPU da `dist/`, scarica Python incorporato 3.12, FFmpeg, i pesi YuE2 (Q8 e Q4, circa 7 GB) i modelli di separazione e conversione vocale (circa 3 GB) e il runtime di trascrizione con torch CPU (SheetSage2 + MERT-v2, circa 3 GB), imposta `backend=cpu` nel database e avvia il server su `127.0.0.1:8776`. Servono circa 20 GB di spazio libero e una connessione internet; i download sono riprendibili se interrotti. Per scaricare un solo modello: `install.bat -Models q4` (oppure `q8`).
 
 I due modelli servono a scegliere: **Q8** è quello collaudato e con la qualità migliore, **Q4** occupa 2,5 GB invece di 4,0 e su CPU è più veloce, con una qualità leggermente inferiore. La scelta si fa dall’app, in **Preferenze → Modello**, e vale dal lavoro successivo: entrambi restano sul disco, quindi si passa dall’uno all’altro senza riscaricare nulla.
 
@@ -25,19 +25,31 @@ I pesi YuE2 vengono presi da una **revisione fissa** del repository Hugging Face
 
 La generazione su CPU riserva molta memoria di sistema: il motore prealloca le arene dei grafi (circa 20 GB nel picco di una generazione completa, oltre ai pesi). Sono consigliati **32 GB di RAM**; con 16 GB conviene chiudere le altre applicazioni e lasciare il file di paging gestito da Windows. Come riferimento, su un Ryzen 5 3600 (6 core, 8 thread) la sola pianificazione di un brano richiede circa 7 minuti; la sintesi audio completa è sensibilmente più lunga.
 
-### Generazione con la GPU (facoltativa)
+### CPU predefinita e GPU facoltativa
 
-Con una scheda **NVIDIA** la generazione è molto più rapida (riferimento sulla stessa macchina: 0,3-2,5 minuti per un brano completo contro oltre 7 minuti per la sola pianificazione su CPU) e i pesi stanno nella memoria video, quindi il fabbisogno di RAM di sistema scende. Il motore CUDA è compilato **sulla macchina di destinazione**, così il binario corrisponde all’architettura della scheda installata e resta valido anche se la cambi.
+Una nuova installazione parte sempre su **CPU**, anche quando rileva una scheda NVIDIA. `install.bat` non compila e non attiva CUDA automaticamente. Su un'installazione esistente conserva le preferenze e un runtime di trascrizione già funzionante.
 
-Al termine dell’installazione `install.ps1` verifica se ci sono gli strumenti necessari — GPU NVIDIA con driver, Visual Studio 2022 Build Tools con «Desktop development with C++», CUDA Toolkit 12.x — e, se ci sono, avvia la compilazione (20-60 minuti, interrompibile). Se manca qualcosa lo segnala e indica il comando da lanciare in seguito:
+Per usare NVIDIA CUDA, esegui **`Attiva-GPU.bat`**. Servono un driver NVIDIA compatibile, **CUDA Toolkit 12.8** e **Visual Studio 2022 Build Tools** con gli strumenti C++ e CMake. Il comando usa Ninja, incluso negli strumenti CMake: non richiede l'integrazione CUDA per MSBuild. La prima compilazione può richiedere 20–60 minuti e rileva l'architettura della scheda del PC. Se il compilatore MSVC è troppo nuovo per il Toolkit, installa anche il toolset v143 14.38 dai componenti individuali di Build Tools; lo script lo seleziona quando disponibile.
 
-`powershell -ExecutionPolicy Bypass -File scripts\build_engine_cuda.ps1`
+Il motore GPU comprende **YuE2, HTDemucs e SeedVC**, con i contratti dei modelli inclusi nel binario. Lo script prepara anche la trascrizione CUDA: riusa un runtime CUDA già funzionante oppure ne installa uno separato in `runtime/transcription-cuda`, conservando il runtime CPU. Solo dopo le verifiche attiva CUDA. Per un'installazione iniziale con questa scelta esplicita è disponibile anche `install.bat -EnableGpu`.
 
-Lo script scarica il sorgente di audio.cpp al commit fissato, applica la patch H3, compila, verifica che il motore elenchi un dispositivo CUDA e sostituisce quello in `runtime/engine` (il motore CPU viene conservato in `runtime/engine-cpu`), quindi imposta `backend=cuda`. Per tornare alla CPU: `build_engine_cuda.ps1 -Revert`. Il backend si può cambiare anche dalle preferenze dell’app, senza reinstallare nulla.
+Per tornare alla CPU, scegli **Sistema → Dispositivo → CPU → Salva preferenze**, oppure esegui **`Attiva-CPU.bat`**. Non servono nuovi download. `build_engine_cuda.ps1 -Revert` ora seleziona CPU conservando il motore GPU: non cancella né sostituisce cartelle.
+
+La sostituzione del motore richiede una coda vuota. Una verifica fallita mantiene attivi il motore e il backend precedenti; il motore sostituito è conservato in una cartella univoca `runtime/engine-backup-*`. I brani, le voci di riferimento e le altre preferenze sono conservati.
+
+### Aggiornamento dopo un pull
+
+1. Termina i lavori e ferma il servizio con `Ferma-H3-Music.bat`.
+2. Esegui `git pull` nella cartella dell'app.
+3. Esegui `install.bat` per aggiornare il motore CPU e predisporre gli eventuali componenti mancanti. Un motore CUDA completo e funzionante viene conservato; quello vecchio che manca di separazione/voce viene salvato in backup e sostituito dal motore CPU completo.
+4. Se desideri la GPU, oppure hai il vecchio motore CUDA che riconosce soltanto YuE2, esegui `Attiva-GPU.bat`.
+5. Apri `H3-Music.exe`.
+
+Le verifiche di questa versione sono descritte in [docs/CPU-GPU.md](docs/CPU-GPU.md).
 
 ## Avvio
 
-Apri il collegamento **H3-Music** sul desktop oppure `F:\H3-Music\H3-Music.exe`. Il launcher apre una finestra app di Microsoft Edge e avvia il servizio esclusivamente su `127.0.0.1:8776`. Se è già attivo, riusa il servizio. Il runtime Python e FFmpeg sono inclusi nella cartella; ComfyUI non è necessario.
+Apri il collegamento **H3-Music** sul desktop oppure `F:\H3-Music\H3-Music.exe`. Il launcher apre una finestra app di Microsoft Edge e avvia il servizio esclusivamente su `127.0.0.1:8776`. Se è già attivo, riusa il servizio. Dopo `install.bat`, il runtime Python e FFmpeg sono nella cartella; ComfyUI non è necessario.
 
 Per fermare il servizio usa `Ferma-H3-Music.bat`. Chiudere la finestra mantiene le generazioni in esecuzione. L’arresto del servizio ferma il lavoro attivo; i lavori in attesa restano salvati. Un lavoro interrotto può essere ripetuto dalla coda.
 
@@ -95,11 +107,11 @@ La trascrizione e YuE2 condividono la coda: viene eseguito un solo modello alla 
 
 ## Limiti effettivi
 
-La versione YuE2 di audio.cpp è sul ramo `dev`: il supporto è recente e sperimentale. La build locale è compilata per la RTX 5070 Ti, architettura CUDA 120, e usa i pesi Q8_0 con VAE F16. Il repository include anche una build CPU precompilata (`dist/h3-engine-cpu-win64.zip`) usata dall’installatore: funziona su qualsiasi PC x64, con o senza GPU.
+La versione YuE2 di audio.cpp è sul ramo `dev`: il supporto è recente e sperimentale. La build locale è compilata per la RTX 5070 Ti, architettura CUDA 120, e usa i pesi Q8_0 con VAE F16. Il repository include anche una build CPU precompilata (`dist/h3-engine-cpu-win64.zip`) usata dall’installatore: richiede Windows x64 con AVX2, FMA, F16C e BMI2, con o senza GPU.
 
 Il modello dichiara principalmente inglese e cinese; l’italiano è sperimentale. Le impostazioni di tempo e durata nello stile sono indicazioni, non vincoli esatti. Il limite di token può troncare il risultato: H3-Music evidenzia questo stato senza presentarlo come una canzone completa.
 
-Le modifiche producono una nuova registrazione dell’intero brano. YuE2 non offre in questa distribuzione separazione voce/strumenti, clonazione controllata di una voce, editing di un solo intervallo dell’audio o addestramento LoRA. Queste funzioni non sono simulate.
+Le modifiche in YuE2 producono una nuova registrazione del brano. Separazione e conversione vocale sono operazioni successive, affidate a HTDemucs e SeedVC; non sono funzioni native di YuE2. Editing locale dell’audio e addestramento LoRA non sono implementati. La somiglianza della voce convertita va verificata ascoltando il risultato.
 
 La sezione **Trascrivi** usa **SheetSage2 + MERT-v2**, installati in un runtime isolato incluso nell’app. Ricava note, accordi, battiti, tonalità e struttura da MP3/WAV/FLAC/M4A e altri formati. Non riconosce le parole cantate e non separa l’audio in registrazioni di voce/strumenti. Le trascrizioni sono stime da verificare: polifonia, voci sovrapposte, rumore e cambi di tempo possono produrre errori. Se lo spartito non è costruibile, MIDI e annotazioni restano consultabili con il relativo avviso.
 
@@ -111,7 +123,8 @@ L’assistente richiede un modello caricato e il server locale di LM Studio; non
 - `data/outputs/<id>/`: tutti i file di una generazione, senza sovrascrivere le altre.
 - `data/imports/<id>/`: originali importati e metadati SHA-256.
 - `models/SheetSage2/` e `models/MERT-v2-FullSong/`: trascrittore e modello audio.
-- `runtime/transcription/`: cartella reale su F: con Python 3.11 e PyTorch CUDA. Le librerie usano compressione trasparente Windows per risparmiare spazio. Non sono necessari dischi esterni.
+- `runtime/transcription/`: Python 3.11 e PyTorch per la trascrizione, CPU sulle nuove installazioni.
+- `runtime/transcription-cuda/`: runtime facoltativo separato per la trascrizione GPU; non serve se il runtime principale supporta già CUDA.
 - `data/window-profile/`: profilo della finestra Edge, incluse bozze locali.
 - `models/yue2/`: pesi GGUF e tokenizer.
 - `runtime/`: Python embedded, motore e DLL CUDA, FFmpeg.

@@ -1,13 +1,17 @@
 """Local audio imports and SheetSage2 queue integration (stdlib only)."""
 import hashlib,json,math,re,shutil,time,urllib.parse,uuid
 from pathlib import Path
+import execution
 MAX_UPLOAD=256*1024*1024
 EXTENSIONS={'.mp3','.wav','.flac','.m4a','.ogg','.opus','.aac','.aif','.aiff','.wma','.mp4'}
 
-def status(root):
+def status(root,backend="cpu"):
  files={'runtime/transcription/python.exe':None,'runtime/transcription/Lib/site-packages/torch/__init__.py':None,'runtime/transcription/Lib/site-packages/transformers/__init__.py':None,'models/SheetSage2/model.safetensors':228738564,'models/MERT-v2-FullSong/model.safetensors':2529812848,'runtime/ffmpeg.exe':None,'runtime/transcription/installed.json':None,'models/transcription-manifest.json':None}
+ runtime=execution.transcription_python(root,backend).parent
+ selected=runtime.relative_to(root).as_posix()+'/'
+ files={n.replace('runtime/transcription/',selected):size for n,size in files.items()}
  missing=[n for n,size in files.items() if not (root/n).is_file() or size and (root/n).stat().st_size!=size]
- return {'ready':not missing,'model':'SheetSage2 + MERT-v2','missing':missing,'max_upload_mb':256,'max_duration_seconds':1800,'runtime_path':str((root/'runtime/transcription').resolve())}
+ return {'ready':not missing,'model':'SheetSage2 + MERT-v2','missing':missing,'max_upload_mb':256,'max_duration_seconds':1800,'runtime_path':str(runtime.resolve())}
 
 def source(data,ident):
  if not re.fullmatch('[a-f0-9]{32}',str(ident)):raise ValueError('Audio importato non valido.')
@@ -64,7 +68,7 @@ def upload(handler,app,size):
   raise
 
 def enqueue(app,data):
- if not status(app.ROOT)['ready']:raise ValueError('Il motore di trascrizione non è ancora pronto. Vedi Sistema.')
+ if not status(app.ROOT,app.settings()['backend'])['ready']:raise ValueError('Il motore di trascrizione non è ancora pronto. Vedi Sistema.')
  req=data.get('request',data)
  path,meta=source(app.DATA,req.get('source_id'))
  start=float(req.get('start',0));end=float(req.get('end',0)) or meta['duration']
@@ -81,7 +85,7 @@ def command(app,job,d):
  app.write_json(d/'request.json',req)
  app.write_json(d/'source.json',meta)
  # Relative source id is validated above; the child receives paths controlled by the app.
- return [str(app.ROOT/'runtime/transcription/python.exe'),'-u',str(app.ROOT/'scripts/transcribe_worker.py'),'--input',str(path),'--output',str(d),'--root',str(app.ROOT),'--backend',app.settings()['backend'],'--threads',str(app.settings()['threads'])]
+ return [str(execution.transcription_python(app.ROOT,app.settings()['backend'])),'-u',str(app.ROOT/'scripts/transcribe_worker.py'),'--input',str(path),'--output',str(d),'--root',str(app.ROOT),'--backend',app.settings()['backend'],'--threads',str(app.settings()['threads'])]
 
 def finish(app,job,d):
  p=d/'result.json'

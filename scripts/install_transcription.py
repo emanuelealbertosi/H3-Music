@@ -6,7 +6,9 @@ Downloads everything from Hugging Face at pinned revisions; no local vendor/
 folder is required. Writes models/transcription-manifest.json with the
 verified SHA-256 values expected by transcription.status().
 """
-import argparse, pathlib, urllib.request, zipfile, subprocess, os, json, hashlib, concurrent.futures, re
+import argparse, pathlib, urllib.request, zipfile, subprocess, os, json, hashlib, concurrent.futures, re, sys
+sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]))
+import execution
 
 r = pathlib.Path(__file__).resolve().parents[1]
 py = r/'runtime/transcription'
@@ -88,7 +90,7 @@ def runtime(backend):
  page=urllib.request.urlopen(index+'/torch/').read().decode()
  expected=re.search(r'torch-2\.8\.0(?:%2B|\+)' + re.escape(tag) + r'-cp311-cp311-win_amd64\.whl#sha256=([a-f0-9]{64})', page).group(1)
  assert hashlib.file_digest(open(wheel,'rb'),'sha256').hexdigest()==expected
- subprocess.run([str(py/'python.exe'),'-m','pip','install','--no-cache-dir',str(wheel),'torchaudio==2.8.0','--index-url',index],check=True)
+ subprocess.run([str(py/'python.exe'),'-m','pip','install','--no-cache-dir',str(wheel),f'torchaudio==2.8.0+{tag}','--index-url',index],check=True)
  wheel.unlink()
  # requirements.txt arriva dal repository SheetSage2: lo scarichiamo qui, in una
  # copia separata, perche' models() gira in parallelo e potrebbe non averlo ancora
@@ -96,6 +98,15 @@ def runtime(backend):
  req=tmp/'sheetsage2-requirements.txt'
  get('https://huggingface.co/m-a-p/SheetSage2/resolve/'+SHEET_REV+'/requirements.txt',req)
  subprocess.run([str(py/'python.exe'),'-m','pip','install','--no-cache-dir','-r',str(req)],check=True)
+ # Make the runtime independent of a machine-wide VC++ redistributable.
+ with zipfile.ZipFile(r/'dist/h3-engine-cpu-win64.zip') as archive:
+  for entry in archive.infolist():
+   name=pathlib.PurePosixPath(entry.filename).name
+   if '140' in name and name.endswith('.dll'):
+    for folder in (py,py/'Lib/site-packages/torch/lib'):
+     folder.mkdir(parents=True,exist_ok=True)
+     target=folder/name
+     if not target.exists():target.write_bytes(archive.read(entry))
  (py/'installed.json').write_text(json.dumps({'torch':f'2.8.0+{tag}','python':'3.11.9','revision':SHEET_REV}),encoding='utf-8')
  print('RUNTIME READY',flush=True)
 
@@ -108,13 +119,37 @@ def manifest():
               'models/MERT-v2-FullSong/configuration_mert2.py':sha('models/MERT-v2-FullSong/configuration_mert2.py')}}
  (r/'models/transcription-manifest.json').write_text(json.dumps(m,indent=1),encoding='utf-8')
 
-p=argparse.ArgumentParser()
-p.add_argument('--backend',choices=['cpu','cuda'],required=True)
-a=p.parse_args()
-os.environ.update(TEMP=str(tmp),TMP=str(tmp),PYTHONUTF8='1',PIP_DISABLE_PIP_VERSION_CHECK='1')
-tmp.mkdir(exist_ok=True,parents=True);py.mkdir(exist_ok=True,parents=True)
-with concurrent.futures.ThreadPoolExecutor(2) as pool:
- futures=[pool.submit(models),pool.submit(runtime,a.backend)]
- for f in futures:f.result()
-manifest()
-print('TRANSCRIPTION INSTALL COMPLETE',flush=True)
+def main():
+ global py
+ p=argparse.ArgumentParser()
+ p.add_argument('--backend',choices=['cpu','cuda'],required=True)
+ p.add_argument('--runtime-only',action='store_true',help='Do not download model weights again.')
+ p.add_argument('--preserve-existing',action='store_true',help='Keep a working CPU or CUDA installation on repair.')
+ a=p.parse_args()
+ os.environ.update(TEMP=str(tmp),TMP=str(tmp),PYTHONUTF8='1',PIP_DISABLE_PIP_VERSION_CHECK='1')
+ tmp.mkdir(exist_ok=True,parents=True)
+ base=r/'runtime/transcription'
+ existing=execution.transcription_python(r,a.backend)
+ reusable=False
+ if existing.is_file():
+  try:
+   found=execution.check_torch(existing,cuda=a.backend=='cuda')
+   reusable=a.preserve_existing or (found['torch']=='2.8.0+'+('cu128' if a.backend=='cuda' else 'cpu') and found['torchaudio']=='2.8.0+'+('cu128' if a.backend=='cuda' else 'cpu'))
+  except (OSError,ValueError,subprocess.SubprocessError):pass
+ if not reusable:
+  # A GPU upgrade is isolated: a failed pip install cannot damage CPU transcription.
+  py=r/'runtime/transcription-cuda' if a.backend=='cuda' else base
+  py.mkdir(exist_ok=True,parents=True)
+  runtime(a.backend)
+  execution.check_torch(py/'python.exe',cuda=a.backend=='cuda')
+ else:
+  print('EXISTING RUNTIME READY',existing,flush=True)
+ if not a.runtime_only:
+  # Existing validated weights do not need a new network request on repair.
+  import transcription
+  if not transcription.status(r)['ready']:
+   models();manifest()
+  else:print('EXISTING MODELS READY',flush=True)
+ print('TRANSCRIPTION INSTALL COMPLETE',flush=True)
+
+if __name__=='__main__':main()

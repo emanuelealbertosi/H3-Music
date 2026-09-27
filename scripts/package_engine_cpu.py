@@ -4,7 +4,9 @@ Runs on the build machine after the audio.cpp CPU build (Visual Studio generator
 `vendor/audio.cpp/build/cpu-vs`, Release). The zip contains audiocpp_cli.exe plus
 the MSVC runtime DLLs so a target PC needs no Visual Studio redistributable.
 """
-import pathlib, shutil, subprocess, zipfile
+import pathlib, shutil, subprocess, zipfile, sys, tempfile
+sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]))
+import execution
 
 root = pathlib.Path(__file__).resolve().parents[1]
 candidates = [
@@ -17,9 +19,7 @@ if exe is None:
     raise SystemExit('Engine CPU non compilato. Cercato in:\n  ' + '\n  '.join(str(p) for p in candidates))
 print('Engine:', exe)
 
-staging = root/'dist/engine-cpu-staging'
-if staging.exists(): shutil.rmtree(staging)
-staging.mkdir(parents=True)
+staging = pathlib.Path(tempfile.mkdtemp(prefix='engine-cpu-',dir=root/'runtime'))
 shutil.copy2(exe, staging/exe.name)
 
 redist_root = pathlib.Path(r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Redist\MSVC')
@@ -40,10 +40,12 @@ if r.returncode: raise SystemExit('Engine non avviabile (--version): ' + str(r.r
 r2 = subprocess.run([str(staging/'audiocpp_cli.exe'), '--list-devices'], capture_output=True, text=True, encoding='utf-8', errors='replace')
 print(r2.stdout.strip())
 
+execution.check_engine(staging/'audiocpp_cli.exe','cpu')
 zip_path = root/'dist/h3-engine-cpu-win64.zip'
-if zip_path.exists(): zip_path.unlink()
-with zipfile.ZipFile(zip_path,'w',zipfile.ZIP_DEFLATED) as z:
+pending=zip_path.with_suffix('.zip.partial')
+with zipfile.ZipFile(pending,'w',zipfile.ZIP_DEFLATED) as z:
     for p in sorted(staging.iterdir()):
         z.write(p, p.name)
+pending.replace(zip_path)
 shutil.rmtree(staging)
 print('ZIP READY', zip_path.stat().st_size)

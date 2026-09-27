@@ -1,5 +1,6 @@
 from pathlib import Path
-r=Path(__file__).resolve().parents[1]/'vendor/audio.cpp'
+import argparse
+p=argparse.ArgumentParser();p.add_argument('--source',type=Path,default=Path(__file__).resolve().parents[1]/'vendor/audio.cpp');r=p.parse_args().source
 def edit(name,old,new):
  p=r/name; s=p.read_text(encoding='utf-8')
  if new in s: return

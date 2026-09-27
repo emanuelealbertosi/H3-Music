@@ -1,5 +1,7 @@
 # Report della sessione di lavoro
 
+> Aggiornamento successivo: il blocco CUDA descritto al §6 è stato risolto. Per il percorso CPU/GPU corrente e i collaudi, vedi [CPU-GPU.md](CPU-GPU.md).
+
 Documento di riepilogo di tutto il lavoro svolto in questa sessione su H3-Music.
 Raccoglie cosa è stato consegnato, i difetti trovati e corretti, le verifiche
 eseguite con i numeri misurati, quello che resta da fare e le note pratiche

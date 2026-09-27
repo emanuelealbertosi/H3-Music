@@ -19,7 +19,7 @@ di riferimento; il risultato finale è **cantato**.
 - **Fase 3 — rimix: fatta.** La voce convertita (mono) viene unita alla base
   strumentale (batteria, basso, altro) con FFmpeg in un `audio.wav` stereo;
   verificato con la funzione dell'app.
-- **Fase 4 — collaudo: da completare** sulla macchina di destinazione.
+- **Fase 4 — collaudo GPU completato su frammenti di prova** sulla RTX 5070 Ti: separazione, conversione e rimix. Vedi [CPU-GPU.md](CPU-GPU.md) per le prove e i relativi limiti.
 
 **Attenzione ai tempi su CPU**: la conversione SeedVC è la parte pesante, circa
 20-60 volte la durata dell'audio (un brano di 3 minuti richiede da una a tre ore

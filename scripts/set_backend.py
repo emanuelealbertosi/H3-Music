@@ -11,6 +11,8 @@ import sqlite3
 import sys
 
 root = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(root))
+import execution
 db = root / 'data/music.sqlite'
 wanted = (sys.argv[1] if len(sys.argv) > 1 else '').strip().lower()
 if wanted not in ('cpu', 'cuda'):
@@ -18,6 +20,8 @@ if wanted not in ('cpu', 'cuda'):
 if not db.exists():
     raise SystemExit('Database assente: esegui prima install.bat')
 
+if wanted == 'cuda':
+    execution.check_cuda(root)
 conn = sqlite3.connect(db)
 try:
     row = conn.execute("SELECT value FROM settings WHERE key='main'").fetchone()

@@ -121,7 +121,7 @@ def main():
     if not wanted:
         raise SystemExit('nessuno strumento da scaricare per --tool %s' % args.tool)
 
-    record = {'repo': meta['repo'], 'revision': meta['revision'], 'tools': {}}
+    record = {'repo': meta['repo'], 'revision': meta['revision'], 'tools': dict(known)}
     for tool in wanted:
         digest = download(root, meta, tool, known.get(tool['file'], {}))
         record['tools'][tool['file']] = {'id': tool['id'], 'directory': tool['directory'], 'size': tool['size'], 'sha256': digest}

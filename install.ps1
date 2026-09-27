@@ -4,7 +4,7 @@
 # FFmpeg, i modelli YuE2 e il runtime di trascrizione (torch CPU), estrae il
 # motore audio.cpp precompilato da dist/, imposta backend=cpu e avvia il server.
 
-param([switch]$DryRun, [switch]$SkipGpuBuild, [switch]$LatestModels, [string]$Models = 'both')
+param([switch]$DryRun, [switch]$EnableGpu, [switch]$SkipGpuBuild, [switch]$LatestModels, [string]$Models = 'both')
 
 $ErrorActionPreference = 'Stop'
 # TLS 1.2 sempre; TLS 1.3 solo se il .NET Framework installato lo conosce.
@@ -137,7 +137,7 @@ try {
     Write-Host '  Con meno di 24 GB conviene chiudere le altre applicazioni o aumentare il file di paging.' -ForegroundColor Yellow
   }
 } catch { Write-Host '  Memoria fisica: non rilevata' }
-if ($DryRun) { Write-Host 'DRY RUN - nessun download eseguito.'; exit 0 }
+if ($DryRun) { Write-Host ('DRY RUN - fresh_backend=cpu; gpu_requested=' + [bool]($EnableGpu -and -not $SkipGpuBuild)); exit 0 }
 if ($drive.TotalFreeSpace -lt 20GB) { throw "Spazio insufficiente: servono almeno 20 GB liberi (disponibili $freeGB GB)." }
 
 # ---------- 2. Python incorporato ----------
@@ -177,10 +177,7 @@ Write-Step 4 'Motore audio.cpp (CPU, precompilato)'
 $zip = "$root\dist\h3-engine-cpu-win64.zip"
 if (-not (Test-Path $zip)) { throw "Zip del motore non trovata: dist/h3-engine-cpu-win64.zip" }
 $eng = "$root\runtime\engine"
-if (-not (Test-Path "$eng\audiocpp_cli.exe")) {
-  if (Test-Path $eng) { Remove-Item -Recurse -Force $eng }
-  Expand-Zip $zip $eng
-}
+Run-Python "$root\scripts\install_cpu_engine.py" @()
 $code = Invoke-Native "$eng\audiocpp_cli.exe" @('--version')
 if ($code -ne 0) { throw "Motore non avviabile (exit code $code)" }
 
@@ -201,14 +198,14 @@ if ($Models -eq 'both') {
 }
 Run-Python "$root\scripts\download_models.py" $modelArgs
 
-# Modelli ausiliari: separazione voce/strumenti (59 MB). Servono per la funzione
-# "separa voce e base"; il motore CPU distribuito li supporta.
-Write-Host '  modelli ausiliari (separazione voce e base)...'
-Run-Python "$root\scripts\download_tools.py" @('--tool','sep')
+# Modelli ausiliari: separazione (59 MB) e conversione vocale (2.98 GB).
+# Entrambe le famiglie sono incluse nel motore distribuito.
+Write-Host '  modelli ausiliari (separazione e conversione vocale)...'
+Run-Python "$root\scripts\download_tools.py" @('--tool','all')
 
 # ---------- 6. Trascrizione ----------
 Write-Step 6 'Trascrizione (SheetSage2 + MERT-v2, torch CPU)'
-Run-Python "$root\scripts\install_transcription.py" @('--backend','cpu')
+Run-Python "$root\scripts\install_transcription.py" @('--backend','cpu','--preserve-existing')
 
 # torch e' codice C++: se sul PC manca il redistributable Visual C++ 2015-2022
 # non riesce a caricare msvcp140.dll. Le stesse DLL sono nel motore precompilato:
@@ -238,22 +235,28 @@ if (Test-Path $txpy) {
 Write-Step 7 'Impostazioni e avvio del server'
 Run-Python "$root\scripts\seed_settings.py" @()
 
-try {
-  Get-Text 'http://127.0.0.1:8776/api/shutdown' | Out-Null
-  for ($i = 0; $i -lt 20; $i++) { Start-Sleep -Milliseconds 500; try { Get-Text 'http://127.0.0.1:8776/api/health'; continue } catch { break } }
-} catch {}
-
-$proc = Start-Process -FilePath "$pydir\pythonw.exe" -ArgumentList "app.py" -WorkingDirectory $root -PassThru
 $ready = $false
-for ($i = 0; $i -lt 90; $i++) {
-  Start-Sleep -Milliseconds 500
-  try {
-    if ((Get-Text 'http://127.0.0.1:8776/api/state') -match '"ready":\s*true') { $ready = $true; break }
-  } catch {}
-}
-if (-not $ready) {
-  try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
-  throw 'Server non pronto dopo l''avvio. Controlla logs/server.log.'
+try {
+  $health = (Get-Text 'http://127.0.0.1:8776/api/health') | ConvertFrom-Json
+  $state = (Get-Text 'http://127.0.0.1:8776/api/state') | ConvertFrom-Json
+} catch { $health=$null; $state=$null }
+if ($health) {
+  if ($health.app -ne 'H3-Music' -or $state.runtime.root -ne $root) { throw 'La porta 8776 e usata da un altra installazione. Chiudila prima di continuare.' }
+  $ready=[bool]$state.runtime.ready
+  if (-not $ready) { throw 'Il server esistente segnala componenti mancanti. Controlla Sistema.' }
+} else {
+  $proc = Start-Process -FilePath "$pydir\pythonw.exe" -ArgumentList 'app.py' -WorkingDirectory $root -WindowStyle Hidden -PassThru
+  for ($i = 0; $i -lt 90; $i++) {
+    Start-Sleep -Milliseconds 500
+    try {
+      $state=(Get-Text 'http://127.0.0.1:8776/api/state') | ConvertFrom-Json
+      if ($state.runtime.root -eq $root -and $state.runtime.ready) { $ready=$true; break }
+    } catch {}
+  }
+  if (-not $ready) {
+    if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+    throw 'Server non pronto dopo avvio. Controlla logs/server.log.'
+  }
 }
 
 Write-Host ''
@@ -261,59 +264,13 @@ Write-Host 'INSTALLAZIONE COMPLETATA' -ForegroundColor Green
 Write-Host '  Server attivo: http://127.0.0.1:8776'
 Write-Host '  Per aprire l''app: H3-Music.exe (o Avvia-H3-Music.bat)'
 
-# ---------- 8. Motore GPU (facoltativo) ----------
-Write-Step 8 'Motore GPU (facoltativo)'
-$gpuName = ''
-try { $gpuName = (& nvidia-smi --query-gpu=name --format=csv,noheader 2>$null | Select-Object -First 1) } catch {}
-$cudaRoot = $env:CUDA_PATH
-if (-not $cudaRoot -or -not (Test-Path (Join-Path $cudaRoot 'bin\nvcc.exe'))) {
-  $cudaBase = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA'
-  $cudaRoot = (Get-ChildItem $cudaBase -Directory -ErrorAction SilentlyContinue |
-    Where-Object { Test-Path (Join-Path $_.FullName 'bin\nvcc.exe') } |
-    Sort-Object Name | Select-Object -Last 1).FullName
-}
-$vsFound = ''
-$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-if (Test-Path $vswhere) {
-  $vsFound = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null | Select-Object -First 1)
-}
-if (-not $vsFound) {
-  foreach ($base in @(${env:ProgramFiles(x86)}, ${env:ProgramFiles})) {
-    foreach ($edition in @('BuildTools', 'Community', 'Professional', 'Enterprise')) {
-      $p = Join-Path $base "Microsoft Visual Studio\2022\$edition"
-      if (-not $vsFound -and (Test-Path (Join-Path $p 'VC\Auxiliary\Build\vcvarsall.bat'))) { $vsFound = $p }
-    }
-  }
-}
-
-if ($gpuName) { Write-Host "  GPU NVIDIA: $gpuName" } else { Write-Host '  GPU NVIDIA: non rilevata' }
-if ($cudaRoot) { Write-Host "  CUDA Toolkit: $cudaRoot" } else { Write-Host '  CUDA Toolkit: assente' }
-if ($vsFound) { Write-Host "  Visual Studio C++: $vsFound" } else { Write-Host '  Visual Studio C++: assente' }
-
-$gpuScript = "$root\scripts\build_engine_cuda.ps1"
-if ($SkipGpuBuild) {
-  Write-Host '  Build GPU saltata (-SkipGpuBuild).'
-} elseif ($gpuName -and $cudaRoot -and $vsFound) {
-  Write-Host ''
-  Write-Host '  Tutti gli strumenti ci sono: compilo il motore CUDA per questa scheda.' -ForegroundColor Green
-  Write-Host '  La compilazione puo durare da 20 a 60 minuti e usa la CPU; puoi interromperla con Ctrl+C.' -ForegroundColor DarkYellow
-  Write-Host '  L app intanto e gia funzionante con il motore CPU.' -ForegroundColor DarkYellow
-  Write-Host ''
-  $code = Invoke-Native 'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $gpuScript)
-  if ($code -ne 0) {
-    Write-Host ''
-    Write-Host '  Build GPU non riuscita: l app resta pienamente funzionante su CPU.' -ForegroundColor Yellow
-    Write-Host '  Puoi riprovare quando vuoi con: powershell -ExecutionPolicy Bypass -File scripts\build_engine_cuda.ps1' -ForegroundColor Yellow
-  }
+# ---------- 8. GPU: explicit opt-in only ----------
+Write-Step 8 'GPU facoltativa'
+if ($EnableGpu -and -not $SkipGpuBuild) {
+  $code = Invoke-Native 'powershell.exe' @('-NoProfile','-ExecutionPolicy','Bypass','-File',"$root\scripts\build_engine_cuda.ps1")
+  if ($code -ne 0) { throw 'Attivazione GPU fallita. Il backend precedente resta selezionato; leggi il motivo sopra e riprova con Attiva-GPU.bat.' }
 } else {
-  Write-Host ''
-  Write-Host '  Il motore CPU e attivo e l app funziona: la GPU e solo un miglioramento.' -ForegroundColor DarkYellow
-  Write-Host '  Per generare con la scheda NVIDIA servono:' -ForegroundColor DarkYellow
-  if (-not $gpuName) { Write-Host '    - una GPU NVIDIA con driver aggiornato' -ForegroundColor DarkYellow }
-  if (-not $vsFound) { Write-Host '    - Visual Studio 2022 Build Tools con "Desktop development with C++"' -ForegroundColor DarkYellow }
-  if (-not $cudaRoot) { Write-Host '    - NVIDIA CUDA Toolkit 12.x: https://developer.nvidia.com/cuda-downloads' -ForegroundColor DarkYellow }
-  Write-Host '  Quando ci sono, da questa cartella lancia:' -ForegroundColor DarkYellow
-  Write-Host '    powershell -ExecutionPolicy Bypass -File scripts\build_engine_cuda.ps1' -ForegroundColor White
-  Write-Host '  Non serve reinstallare nulla: lo script compila e passa da solo al backend cuda.' -ForegroundColor DarkYellow
+  Write-Host '  La prima installazione usa CPU. Le preferenze esistenti sono conservate.'
+  Write-Host '  Per scegliere NVIDIA CUDA esegui Attiva-GPU.bat (oppure install.bat -EnableGpu).'
+  Write-Host '  Servono driver NVIDIA, CUDA Toolkit 12.8 e Visual Studio 2022 Build Tools con C++ e CMake.'
 }
-

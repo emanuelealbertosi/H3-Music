@@ -5,7 +5,7 @@ from pathlib import Path
 from contextlib import contextmanager
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT))
-import transcription
+import transcription, execution
 APP=sys.modules[__name__]
 DATA=Path(os.environ.get('H3_MUSIC_DATA',str(ROOT/'data')))
 OUT=DATA/'outputs'
@@ -17,7 +17,7 @@ WAKE=threading.Event()
 MODEL=ROOT/'models/yue2'
 ENGINE=ROOT/'runtime/engine/audiocpp_cli.exe'
 FFMPEG=ROOT/'runtime/ffmpeg.exe'
-DEFAULTS={'backend':'cuda','threads':8,'llm_url':'http://127.0.0.1:1234/v1','llm_model':'','paused':False,'model':'q8'}
+DEFAULTS={'backend':'cpu','threads':8,'llm_url':'http://127.0.0.1:1234/v1','llm_model':'','paused':False,'model':'q8'}
 NUMBERS={'cfg_scale':(0,20,1.0),'num_inference_steps':(1,128,32),'abc_temperature':(0,5,.7),'abc_top_p':(0,1,.9),'abc_top_k':(1,1000,30),'abc_repetition_penalty':(.01,10,1.005),'abc_penalty_window':(1,10000,100),'abc_min_tokens':(0,4096,32),'abc_max_tokens':(32,8192,4096),'semantic_temperature':(0,5,1),'semantic_top_p':(0,1,.95),'semantic_top_k':(1,1000,100),'semantic_repetition_penalty':(.01,10,1.2),'semantic_penalty_window':(1,10000,50),'semantic_min_tokens':(0,9000,200),'semantic_max_tokens':(200,12000,9000)}
 INTEGER={'num_inference_steps'}|{k for k in NUMBERS if any(s in k for s in ('top_k','window','tokens'))}
 
@@ -156,7 +156,7 @@ def ready():
  missing=[n for n,size in required.items() if not (MODEL/n).exists() or (MODEL/n).stat().st_size!=size]
  main=[n for n in required if n.startswith('yue2-3b-') and n.endswith('.gguf')]
  if len(main)>1 and any(n not in missing for n in main): missing=[n for n in missing if n not in main]
- return {'ready':ENGINE.exists() and not missing,'engine':ENGINE.exists(),'missing':missing,'ffmpeg':FFMPEG.exists(),'sep':bool(separation_model()),'voice':bool(voice_model()),'voices':len(voice_list()),'model':'YuE2-3B · %s / VAE F16' % ('Q4_0' if main_model_file().startswith('yue2-3b-q4') else 'Q8_0'),'root':str(ROOT),'transcription':transcription.status(ROOT)}
+ return {'ready':ENGINE.exists() and not missing,'engine':ENGINE.exists(),'missing':missing,'ffmpeg':FFMPEG.exists(),'sep':bool(separation_model()),'voice':bool(voice_model()),'voices':len(voice_list()),'model':'YuE2-3B · %s / VAE F16' % ('Q4_0' if main_model_file().startswith('yue2-3b-q4') else 'Q8_0'),'root':str(ROOT),'transcription':transcription.status(ROOT,settings()['backend'])}
 
 TOOLS=ROOT/'models/tools'
 def normalize_audio(src,dst,rate=44100,channels=2):
@@ -550,7 +550,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
      cuda=json.loads(run_capture([str(ROOT/'runtime/python/python.exe'),str(ROOT/'scripts/gpu_info.py')],15).stdout or '{}')
     except Exception: cuda={}
     motore='CUDA' if settings()['backend']=='cuda' else 'CPU'
-    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.1.0','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
+    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.2.0','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
    if path=='/api/voices': return self.json_response({'voices':voice_list(),'model':bool(voice_model())})
    if path=='/api/imports': return self.json_response({'sources':transcription.list_sources(DATA)})
    if re.fullmatch('/imports/[a-f0-9]{32}/audio',path):
@@ -594,6 +594,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     for k in DEFAULTS:
      if k in data: s[k]=data[k]
     if s['backend'] not in ('cuda','cpu'): raise ValueError('Backend non valido.')
+    if s['backend']=='cuda' and settings()['backend']!='cuda': execution.check_cuda(ROOT)
     if s['model'] not in ('q8','q4'): raise ValueError('Modello non valido.')
     s['threads']=int(s['threads'])
     if not 1<=s['threads']<=64: raise ValueError('Thread fuori intervallo.')
