@@ -35,6 +35,8 @@ I collaudi audio usano database e cartelle separati dalla libreria dell'utente. 
 - Interfaccia in Edge: salvataggio progetto, navigazione, bozza, CPU predefinita, scelta CUDA, preferenze, rendering ABC, esportazione MIDI e layout mobile. Nessun errore JavaScript rilevato.
 - GPU NVIDIA RTX 5070 Ti: generazione Q4 e Q8 di circa 20 secondi, separazione in quattro tracce, conversione della voce e remix stereo, trascrizione MP3 con ABC e MIDI validi. La prova usa limiti di token deliberatamente bassi: l'app segnala correttamente che il risultato è troncato. Non è una valutazione della qualità musicale né della somiglianza vocale.
 
+- CPU Ryzen 5 3600, 6 thread, GPU nascosta al processo: generazione Q4 stereo 48 kHz di 20 secondi in 209 s; separazione di 6 secondi in 13 s; conversione vocale e remix in 259 s; trascrizione dello stesso intervallo in 69 s, con ABC e MIDI validi e nessuna memoria GPU usata. Audio controllato per durata, formato e campioni finiti/non silenziosi. Anche questa generazione usa limiti di token bassi e risulta correttamente segnalata come troncata. I tempi sono osservazioni di un singolo collaudo, non benchmark.
+- Vero clone Git del commit applicativo: pacchetto CPU verificato per hash e avvio senza sorgenti audio.cpp; installer in modalità di controllo conferma CPU predefinita. Tutti i 23 test passano anche nel clone dopo aver predisposto FFmpeg/ffprobe, normalmente installati da `install.bat`.
 - Installazione isolata senza Python: download del Python incorporato 3.12.10 e installazione reale da zero di PyTorch 2.8.0+cpu; installer completo concluso con server pronto e backend CPU. I pesi dei modelli e FFmpeg sono stati riutilizzati dalla copia locale per evitare download duplicati. La cartella di prova non contiene i sorgenti audio.cpp.
 - Aggiornamento sull'installazione CUDA esistente: installer standard completato, mantenuti motore GPU e preferenze precedenti (Q8, 8 thread, stato della coda).
 - Configurazione CUDA da una directory di build nuova: riuscita con rilevamento automatico della GPU e di Visual Studio. La prova ha individuato e corretto sia la scelta del toolset compatibile tra più installazioni sia i separatori nei percorsi passati a CMake.
@@ -42,6 +44,8 @@ I collaudi audio usano database e cartelle separati dalla libreria dell'utente. 
 Pacchetto CPU: `dist/h3-engine-cpu-win64.zip`, 9.436.007 byte. SHA-256: `6e18ddc07e3ff321721623dbf50b98abe60d28ea634a7b548e904fcf662827a2`.
 
 ## Ripetere i controlli
+
+Esegui prima `install.bat`: anche i test di importazione MP3 richiedono FFmpeg e ffprobe.
 
 ```powershell
 runtime\python\python.exe -X utf8 -m unittest discover -s tests -p "test_*.py"
