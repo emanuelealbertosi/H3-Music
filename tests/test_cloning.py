@@ -63,6 +63,29 @@ class CloningTests(unittest.TestCase):
     if generated:self.assertEqual((d/'original.wav').read_bytes(),b'generated original')
   tasks=[a[a.index('--task')+1] for a in calls if '--task' in a];self.assertEqual(tasks,['sep'] if missing or cancel else ['sep','svc'])
   self.assertEqual((app.DATA/'imports'/self.source_id/'source.wav').read_bytes(),b'original audio')
+ def test_singing_commands_preserve_pitch(self):
+  args=cloning.voice_command(app,'singing.wav','reference.wav','out.wav',{'backend':'cpu','threads':2})
+  self.assertIn('f0_condition=true',args);self.assertIn('auto_f0_adjust=false',args);self.assertIn('semitone_shift=0',args)
+  self.assertEqual(args[args.index('--task-route')+1],'v1_svc')
+  job={'kind':'voice','request':{'source_id':'abc','voice':self.voice['name']}}
+  self.assertIn('f0_condition=true',app.command_for(job,app.OUT))
+ def test_instrumental_requires_no_reference_or_voice_model(self):
+  with patch.object(app,'voice_model',side_effect=AssertionError('Voice model must not be needed')),patch.object(app,'ready',side_effect=AssertionError('YuE2 must not be needed')):
+   result=app.enqueue({'kind':'instrumental','request':{'import_id':self.source_id}})
+  job=app.get_job(result['ids'][0]);self.assertEqual(job['kind'],'instrumental');self.assertFalse(job['request']['clone_enabled'])
+ def test_instrumental_mix_excludes_vocals(self):
+  job,d=self.queued();job['kind']='instrumental';job['request']['clone_voice']='';calls=[]
+  def run(j,folder,args,**kw):
+   calls.append(args)
+   if '--task' in args:
+    self.assertEqual(args[args.index('--task')+1],'sep')
+    for name in ('vocals','drums','bass','other'):(d/'stems'/(name+'.wav')).write_bytes(name.encode())
+   else:pathlib.Path(args[-1]).write_bytes(b'normalized')
+  with patch.object(app,'run_job_process',side_effect=run),patch.object(app,'audio_info',return_value={'duration':12}),patch.object(app,'voice_model',side_effect=AssertionError('No conversion')):
+   result=cloning.process(app,job,d)
+  self.assertTrue(result['instrumental']);self.assertEqual(result['import_id'],self.source_id)
+  self.assertNotIn(str(d/'stems/vocals.wav'),calls[-1]);self.assertIn(str(d/'stems/other.wav'),calls[-1])
+  self.assertTrue((d/'manifest.json').exists());self.assertFalse((d/'voce.wav').exists())
  def test_import_pipeline_preserves_original(self):self.exercise()
  def test_generation_pipeline_preserves_original(self):self.exercise(generated=True)
  def test_incomplete_stems_abort_conversion(self):self.exercise(missing=True)

@@ -19,8 +19,8 @@ def wait(ident):
  import subprocess
  samples=array.array('f',subprocess.check_output([str(app.FFMPEG),'-v','error','-i',str(audio),'-f','f32le','-ac','1','-'],creationflags=app.HIDDEN));assert samples and all(math.isfinite(x) for x in samples)
  rms=math.sqrt(sum(x*x for x in samples)/len(samples));assert rms>1e-7
- manifest=json.loads((d/'voice-manifest.json').read_text(encoding='utf-8'));assert manifest['sha256']['audio.wav']==hashlib.sha256(audio.read_bytes()).hexdigest()
- assert job['result']['cloned'];assert job['result']['sample_rate']==48000;assert job['result']['channels']==2
+ manifest=json.loads((d/('manifest.json' if job['kind']=='instrumental' else 'voice-manifest.json')).read_text(encoding='utf-8'));assert manifest['sha256']['audio.wav']==hashlib.sha256(audio.read_bytes()).hexdigest()
+ assert job['result']['instrumental' if job['kind']=='instrumental' else 'cloned'];assert job['result']['sample_rate']==48000;assert job['result']['channels']==2
  print('PASS',job['kind'],round(time.monotonic()-start,2),job['result'],flush=True)
  return {'id':ident,'kind':job['kind'],'elapsed':round(time.monotonic()-start,2),'result':job['result'],'rms':rms,'folder':str(d)}
 report={'folder':str(run)}
@@ -29,11 +29,14 @@ try:
  for source,out in [(ROOT/'tests/Prima-luce-trascrizione.mp3',song),(ROOT/'tests/Prima-luce-trascrizione.mp3',ref)]:
   result=app.run_capture([str(app.FFMPEG),'-y','-v','error','-i',str(source),'-t','6','-ar','48000',str(out)],60);assert result.returncode==0,result.stderr
  imported=upload(song);reference=upload(ref);voice=call('/api/voices/import',{'source_id':reference['id'],'name':'Campione sintetico di collaudo'})
+ ident=call('/api/jobs',{'kind':'instrumental','request':{'import_id':imported['id'],'title':'Solo musica'}})['ids'][0]
+ report['instrumental']=wait(ident)
+ assert not (app.OUT/ident/'voce.wav').exists()
  original_digest=hashlib.sha256(song.read_bytes()).hexdigest()
  ident=call('/api/jobs',{'kind':'clone','request':{'import_id':imported['id'],'clone_voice':voice['name'],'title':'Originale con nuova voce'}})['ids'][0]
  report['import']=wait(ident)
  source,_=app.transcription.source(app.DATA,imported['id']);assert hashlib.sha256(source.read_bytes()).hexdigest()==original_digest
- log=(app.OUT/ident/'engine.log').read_text(encoding='utf-8',errors='replace');assert 'yue2.' not in log
+ log=(app.OUT/ident/'engine.log').read_text(encoding='utf-8',errors='replace');assert 'yue2.' not in log;assert 'seed_vc.rmvpe.compute_ms' in log
  req={'title':'Generazione con voce automatica','style':'Italian pop, solo female vocals, acoustic guitar','lyrics':'[Verse]\nSotto il cielo della sera\nCanto piano una canzone','cot':'off','clone_enabled':True,'clone_voice':voice['name'],'seed':831001,'options':{'num_inference_steps':8,'semantic_min_tokens':200,'semantic_max_tokens':500}}
  project=call('/api/projects',{'request':req})
  ident=call('/api/jobs',{'kind':'generate','project_id':project['id'],'request':req})['ids'][0];report['generate']=wait(ident)

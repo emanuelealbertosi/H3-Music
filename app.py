@@ -264,7 +264,7 @@ def mix_voice(job,d,converted,source=None,runner=None):
  return out
 
 def enqueue(data):
- if data.get('kind')=='clone': return cloning.enqueue(APP,data)
+ if data.get('kind') in ('clone','instrumental'): return cloning.enqueue(APP,data)
  if data.get('kind')=='transcribe': return transcription.enqueue(APP,data)
  if data.get('kind')=='sep': return enqueue_separation(data)
  if data.get('kind')=='voice': return enqueue_voice(data)
@@ -330,7 +330,7 @@ def command_for(job,d):
  if job['kind']=='transcribe': return transcription.command(APP,job,d)
  if job['kind']=='voice':
   s=settings(); r=job['request']
-  return [str(ENGINE),'--task','svc','--family','seed_vc','--model',str(voice_model()),'--backend',s['backend'],'--threads',str(s['threads']),'--audio',str(OUT/r.get('source_id','')/'vocals.wav'),'--voice-ref',str(voice_sample(r.get('voice'))),'--out',str(d/'voce.wav'),'--log','--metrics']
+  return cloning.voice_command(APP,OUT/r.get('source_id','')/'vocals.wav',voice_sample(r.get('voice')),d/'voce.wav',s)
  if job['kind']=='sep':
   s=settings()
   inp=normalize_audio(source_audio(job['request'].get('source_id')),d/'input.wav')
@@ -457,7 +457,7 @@ def worker():
    job=get_job(row['id']); ident=job['id']; d=OUT/ident; d.mkdir(exist_ok=True)
    db("UPDATE jobs SET status='running',started=? WHERE id=?",(now(),ident))
   try:
-   if job['kind']=='clone':result=cloning.process(APP,job,d)
+   if job['kind'] in ('clone','instrumental'):result=cloning.process(APP,job,d)
    else:
     run_job_process(job,d,command_for(job,d))
     result=finish_artifacts(job,d)
@@ -592,7 +592,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
      cuda=json.loads(run_capture([str(ROOT/'runtime/python/python.exe'),str(ROOT/'scripts/gpu_info.py')],15).stdout or '{}')
     except Exception: cuda={}
     motore='CUDA' if settings()['backend']=='cuda' else 'CPU'
-    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.4.0','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
+    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.4.1','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
    if path=='/api/voice-audio':
     ref=voice_sample(urllib.parse.parse_qs(parsed.query).get('name',[''])[0])
     if ref is None:raise ValueError('Campione vocale non trovato.')
