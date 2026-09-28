@@ -37,6 +37,39 @@ class StudioTests(unittest.TestCase):
   (app.MODEL/'sidecars/yue2-qwen.tiktoken').write_text(base64.b64encode('X:1\nT:È luce\n'.encode()).decode()+' 10\n')
   d=app.OUT/'sample';d.mkdir();a=array.array('i',[10,151848]);(d/'abc_tokens.i32').write_bytes(a.tobytes())
   self.assertEqual(app.decode_score(d),'X:1\nT:È luce\n')
+ def test_abc_newlines_survive_generation_and_reopen(self):
+  expected='X:1\nT:È luce\n\nK:C\nCDEF |\n'
+  app.MODEL=app.DATA/'model';(app.MODEL/'sidecars').mkdir(parents=True)
+  d=app.OUT/'score-roundtrip';d.mkdir()
+  app.db('INSERT INTO jobs(id,kind,status,request,result) VALUES(?,?,?,?,?)',('score-roundtrip','plan','completed','{}','{}'))
+  for ending in ('\n','\r\n','\r'):
+   with self.subTest(ending=repr(ending)):
+    raw=expected.replace('\n',ending).encode('utf-8')
+    (app.MODEL/'sidecars/yue2-qwen.tiktoken').write_text(base64.b64encode(raw).decode()+' 10\n')
+    tokens=array.array('i',[10])
+    if sys.byteorder!='little': tokens.byteswap()
+    (d/'abc_tokens.i32').write_bytes(tokens.tobytes())
+    self.assertEqual(app.decode_score(d),expected)
+    self.assertEqual((d/'score.abc').read_bytes(),expected.encode('utf-8'))
+    reopened=app.get_job('score-roundtrip',detail=True)['abc']
+    self.assertEqual(reopened,expected)
+    for _ in range(3):
+     request=app.project_save({'request':{'abc':reopened,'cot':'full'}})['request']
+     app.command_for({'kind':'plan','request':request},d)
+     self.assertEqual((d/'input.abc').read_bytes(),expected.strip().encode('utf-8'))
+     reopened=request['abc']
+ def test_legacy_abc_repairs_only_doubled_windows_endings(self):
+  expected='X:1\n\nK:C\nCDEF |\n'
+  d=app.OUT/'legacy';d.mkdir();p=d/'score.abc'
+  for ending in ('\n','\r\n','\r\r\n'):
+   raw=expected.replace('\n',ending).encode('utf-8');p.write_bytes(raw)
+   self.assertEqual(app.read_abc(p),expected)
+   self.assertEqual(p.read_bytes(),raw)
+ def test_abc_fallback_write_preserves_blank_lines(self):
+  d=app.OUT/'fallback';d.mkdir()
+  expected='X:1\n\nK:C\nCDEF |'
+  app.finish_artifacts({'kind':'plan','request':{'abc':expected.replace('\n','\r\n')}},d)
+  self.assertEqual((d/'score.abc').read_bytes(),expected.encode('utf-8'))
  def test_llm_is_local_only(self):
   for url in ['https://example.com','http://127.0.0.1.evil.org','file:///etc/passwd','http://user:pass@localhost:1234']:
    with self.assertRaises(ValueError):app.local_llm_url(url)

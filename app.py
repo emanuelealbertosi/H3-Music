@@ -25,6 +25,14 @@ INTEGER={'num_inference_steps'}|{k for k in NUMBERS if any(s in k for s in ('top
 def now(): return time.time()
 def uid(): return uuid.uuid4().hex
 
+def normalize_abc(text):
+ # Older Windows saves translated CRLF to CRCRLF. Repair before universal
+ # newline decoding loses that distinction; keep genuine blank lines intact.
+ return text.replace('\r\r\n','\n').replace('\r\n','\n').replace('\r','\n')
+
+def read_abc(path):
+ return normalize_abc(path.read_bytes().decode('utf-8'))
+
 @contextmanager
 def conn():
  c=sqlite3.connect(DATA/'music.sqlite',timeout=20); c.row_factory=sqlite3.Row
@@ -49,6 +57,7 @@ def save_settings(s): db('INSERT OR REPLACE INTO settings VALUES (?,?)',('main',
 def validate(req):
  if not isinstance(req,dict): raise ValueError('Progetto non valido.')
  r={k:str(req.get(k,'')).strip() for k in ('title','style','lyrics','abc','notes')}
+ r['abc']=normalize_abc(r['abc'])
  r['title']=r['title'][:120] or 'Senza titolo'
  for k,limit in [('style',4000),('lyrics',16000),('abc',50000),('notes',20000)]:
   if len(r[k])>limit: raise ValueError(k+': testo troppo lungo.')
@@ -108,7 +117,7 @@ def get_job(ident,detail=False):
   if log.exists():
    with log.open('rb') as f:
     f.seek(max(0,log.stat().st_size-16000)); j['log']=f.read().decode('utf-8',errors='replace')
-  score=OUT/ident/'score.abc'; j['abc']=score.read_text(encoding='utf-8') if score.exists() else ''
+  score=OUT/ident/'score.abc'; j['abc']=read_abc(score) if score.exists() else ''
   if j['kind']=='transcribe':
    j['annotations']={}
    for name in ('chord','key','structure','beat'):
@@ -328,7 +337,7 @@ def command_for(job,d):
   return [str(ENGINE),'--task','sep','--family','htdemucs','--model',str(separation_model()),'--backend',s['backend'],'--threads',str(s['threads']),'--audio',str(inp),'--out-dir',str(d),'--log','--metrics']
  req=job['request']; opts=req['options']|{'style':req['style'],'cot':req['cot'],'seed':str(req['seed']),'h3_artifact_dir':str(d),'h3_plan_only':'true' if job['kind']=='plan' else 'false'}
  if req['abc']:
-  (d/'input.abc').write_text(req['abc'],encoding='utf-8'); opts['abc_file']=str(d/'input.abc')
+  (d/'input.abc').write_text(normalize_abc(req['abc']),encoding='utf-8',newline='\n'); opts['abc_file']=str(d/'input.abc')
  write_json(d/'request.json',req)
  write_json(d/'engine-request.json',[{'id':'audio','text':req['lyrics'],'options':opts}])
  s=settings()
@@ -345,8 +354,8 @@ def decode_score(d):
  with (MODEL/'sidecars/yue2-qwen.tiktoken').open('r',encoding='utf-8') as f:
   for line in f:
    b,n=line.strip().split(); vocab[int(n)]=base64.b64decode(b)
- result=b''.join(vocab.get(i,b'') for i in tokens).decode('utf-8',errors='replace')
- (d/'score.abc').write_text(result,encoding='utf-8'); return result
+ result=normalize_abc(b''.join(vocab.get(i,b'') for i in tokens).decode('utf-8',errors='replace'))
+ (d/'score.abc').write_text(result,encoding='utf-8',newline='\n'); return result
 
 def run_capture(args,timeout=30):
  return subprocess.run(args,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=timeout,creationflags=HIDDEN)
@@ -376,7 +385,7 @@ def finish_artifacts(job,d):
   except Exception: dur=0
   return {'stems':stems,'duration':dur,'source_id':job['request'].get('source_id','')}
  score=decode_score(d)
- if not score and job['request']['abc']: (d/'score.abc').write_text(job['request']['abc'],encoding='utf-8')
+ if not score and job['request']['abc']: (d/'score.abc').write_text(normalize_abc(job['request']['abc']),encoding='utf-8',newline='\n')
  flags=d/'generation_flags.json'; result=json.loads(flags.read_text()) if flags.exists() else {}
  if job['kind']=='generate':
   audio=d/'audio.wav'
@@ -587,7 +596,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
      cuda=json.loads(run_capture([str(ROOT/'runtime/python/python.exe'),str(ROOT/'scripts/gpu_info.py')],15).stdout or '{}')
     except Exception: cuda={}
     motore='CUDA' if settings()['backend']=='cuda' else 'CPU'
-    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.5.2','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
+    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.5.3','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
    if path=='/api/voice-audio':
     ref=voice_sample(urllib.parse.parse_qs(parsed.query).get('name',[''])[0])
     if ref is None:raise ValueError('Campione vocale non trovato.')
