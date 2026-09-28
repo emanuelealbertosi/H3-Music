@@ -11,7 +11,14 @@ def status(root,backend="cpu"):
  selected=runtime.relative_to(root).as_posix()+'/'
  files={n.replace('runtime/transcription/',selected):size for n,size in files.items()}
  missing=[n for n,size in files.items() if not (root/n).is_file() or size and (root/n).stat().st_size!=size]
- return {'ready':not missing,'model':'SheetSage2 + MERT-v2','missing':missing,'max_upload_mb':256,'max_duration_seconds':1800,'runtime_path':str(runtime.resolve())}
+ revision=installed_revision(root)
+ try:expected=json.loads((root/'scripts/sheetsage2-revision.json').read_text(encoding='utf-8'))['revision']
+ except (OSError,ValueError,KeyError):expected=None
+ return {'ready':not missing,'model':'SheetSage2 + MERT-v2','missing':missing,'max_upload_mb':256,'max_duration_seconds':1800,'runtime_path':str(runtime.resolve()),'revision':revision,'update_available':bool(expected and revision!=expected)}
+
+def installed_revision(root):
+ try:return json.loads((root/'models/transcription-manifest.json').read_text(encoding='utf-8')).get('sheet_revision')
+ except (OSError,ValueError):return None
 
 def source(data,ident):
  if not re.fullmatch('[a-f0-9]{32}',str(ident)):raise ValueError('Audio importato non valido.')
@@ -84,6 +91,7 @@ def command(app,job,d):
  req=job['request'];path,meta=source(app.DATA,req['source_id'])
  app.write_json(d/'request.json',req)
  app.write_json(d/'source.json',meta)
+ app.write_json(d/'transcription-version.json',{'sheet_revision':installed_revision(app.ROOT)})
  # Relative source id is validated above; the child receives paths controlled by the app.
  return [str(execution.transcription_python(app.ROOT,app.settings()['backend'])),'-u',str(app.ROOT/'scripts/transcribe_worker.py'),'--input',str(path),'--output',str(d),'--root',str(app.ROOT),'--backend',app.settings()['backend'],'--threads',str(app.settings()['threads'])]
 
@@ -94,5 +102,7 @@ def finish(app,job,d):
  if not (d/'transcription.mid').is_file():raise RuntimeError('Il trascrittore non ha prodotto MIDI utilizzabile.')
  result['duration']=result['duration_seconds'];result['source_id']=job['request']['source_id']
  manifest={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in d.iterdir() if p.is_file() and p.name not in ('engine.log','manifest.json','progress.json')}
- app.write_json(d/'manifest.json',{'sha256':manifest,'engine':'SheetSage2','revision':'eab522a8168e8b8b8c4856bf8609cd86198f01fe','result':result})
+ version=d/'transcription-version.json'
+ revision=json.loads(version.read_text(encoding='utf-8')).get('sheet_revision') if version.exists() else installed_revision(app.ROOT)
+ app.write_json(d/'manifest.json',{'sha256':manifest,'engine':'SheetSage2','revision':revision,'result':result})
  return result

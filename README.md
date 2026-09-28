@@ -8,6 +8,8 @@ Questo repository contiene il codice dell’app, l’interfaccia, il launcher Wi
 
 ## Installazione da GitHub (clone)
 
+**Aggiornamento trascrizione 1.5.2:** se l'app è già installata, dopo `git pull` esegui **Aggiorna-Trascrizione.bat**. Installa le correzioni ufficiali SheetSage2 alla scrittura di accordi e tonalità, riutilizzando i pesi e conservando runtime e preferenze CPU/GPU. Su questo PC l'aggiornamento è già applicato. Le nuove installazioni ricevono direttamente la revisione aggiornata. [Dettagli](docs/TRANSCRIPTION-ENGINE.md).
+
 Su un PC Windows x64 senza GPU dedicata:
 
 1. `git clone https://github.com/emanuelealbertosi/H3-Music.git`

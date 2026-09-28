@@ -9,11 +9,12 @@ verified SHA-256 values expected by transcription.status().
 import argparse, pathlib, urllib.request, zipfile, subprocess, os, json, hashlib, concurrent.futures, re, sys
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]))
 import execution
+from scripts.transcription_models import update_files
 
 r = pathlib.Path(__file__).resolve().parents[1]
 py = r/'runtime/transcription'
 tmp = r/'runtime/install-temp'
-SHEET_REV='eab522a8168e8b8b8c4856bf8609cd86198f01fe'
+SHEET_REV='4f89269db831bdc1880124164a00d4f9385cd129'
 MERT_REV='d8ba1c745e733b3908ce6ad16ebeb17ac7600a42'
 
 def get(url,p):
@@ -59,20 +60,12 @@ def get(url,p):
 def models():
  parent=r/'models/MERT-v2-FullSong';parent.mkdir(exist_ok=True,parents=True)
  tree=json.loads((r/'scripts/mert-tree.json').read_text(encoding='utf-8'))
- for f in tree:
-  if f['type']=='file' and f['path'] in ['config.json','configuration_mert2.py','modeling_mert2.py','model.safetensors','LICENSE']:
-   dest=parent/f['path'];get('https://huggingface.co/m-a-p/MERT-v2-FullSong/resolve/'+MERT_REV+'/'+f['path'],dest)
-   if f.get('lfs'):assert hashlib.file_digest(open(dest,'rb'),'sha256').hexdigest()==f['lfs']['oid']
-   print('MODEL',dest.name,dest.stat().st_size,flush=True)
+ files=[f for f in tree if f['type']=='file' and f['path'] in ['config.json','configuration_mert2.py','modeling_mert2.py','model.safetensors','LICENSE']]
+ update_files(r,parent,'m-a-p/MERT-v2-FullSong',MERT_REV,files,get)
  sheet=r/'models/SheetSage2';sheet.mkdir(exist_ok=True,parents=True)
  meta=json.loads((r/'scripts/sheetsage2-revision.json').read_text(encoding='utf-8'))
  assert meta['revision']==SHEET_REV
- for f in meta['files']:
-  if f['type']!='file':continue
-  dest=sheet/f['path'];get('https://huggingface.co/m-a-p/SheetSage2/resolve/'+SHEET_REV+'/'+f['path'],dest)
-  assert dest.stat().st_size==f['size'],f['path']
- model=sheet/'model.safetensors'
- assert hashlib.file_digest(open(model,'rb'),'sha256').hexdigest()=='b235f68091a5f5b644000f2b5acb57d1e70432aca2b34ab1b9cf27236e1f4274'
+ update_files(r,sheet,'m-a-p/SheetSage2',SHEET_REV,meta['files'],get)
  print('MODELS READY',flush=True)
 
 def runtime(backend):
@@ -117,17 +110,36 @@ def manifest():
               'models/MERT-v2-FullSong/model.safetensors':sha('models/MERT-v2-FullSong/model.safetensors'),
               'models/MERT-v2-FullSong/modeling_mert2.py':sha('models/MERT-v2-FullSong/modeling_mert2.py'),
               'models/MERT-v2-FullSong/configuration_mert2.py':sha('models/MERT-v2-FullSong/configuration_mert2.py')}}
- (r/'models/transcription-manifest.json').write_text(json.dumps(m,indent=1),encoding='utf-8')
+ for p in (r/'models/SheetSage2').glob('*.py'):m['sha256'][p.relative_to(r).as_posix()]=sha(p.relative_to(r))
+ path=r/'models/transcription-manifest.json';staged=path.with_suffix('.tmp')
+ staged.write_text(json.dumps(m,indent=1),encoding='utf-8');staged.replace(path)
+
+def installed_revision():
+ try:return json.loads((r/'models/transcription-manifest.json').read_text(encoding='utf-8')).get('sheet_revision')
+ except (OSError,ValueError):return None
+
+def check_idle():
+ # Never replace model code underneath a queued or running transcription.
+ import sqlite3
+ database=r/'data/music.sqlite'
+ if database.exists():
+  with sqlite3.connect(database) as connection:
+   if connection.execute("SELECT 1 FROM jobs WHERE kind='transcribe' AND status IN ('queued','running','cancelling') LIMIT 1").fetchone():
+    raise RuntimeError('Attendi la fine delle trascrizioni in coda prima di aggiornare.')
 
 def main():
  global py
  p=argparse.ArgumentParser()
  p.add_argument('--backend',choices=['cpu','cuda'],required=True)
  p.add_argument('--runtime-only',action='store_true',help='Do not download model weights again.')
+ p.add_argument('--models-only',action='store_true',help='Update model files without changing Python, torch or CPU/GPU settings.')
  p.add_argument('--preserve-existing',action='store_true',help='Keep a working CPU or CUDA installation on repair.')
  a=p.parse_args()
  os.environ.update(TEMP=str(tmp),TMP=str(tmp),PYTHONUTF8='1',PIP_DISABLE_PIP_VERSION_CHECK='1')
  tmp.mkdir(exist_ok=True,parents=True)
+ if a.models_only:
+  if a.runtime_only:p.error('--models-only and --runtime-only cannot be combined')
+  check_idle();models();manifest();print('TRANSCRIPTION MODELS UPDATED',flush=True);return
  base=r/'runtime/transcription'
  existing=execution.transcription_python(r,a.backend)
  reusable=False
@@ -147,8 +159,8 @@ def main():
  if not a.runtime_only:
   # Existing validated weights do not need a new network request on repair.
   import transcription
-  if not transcription.status(r)['ready']:
-   models();manifest()
+  if not transcription.status(r,a.backend)['ready'] or installed_revision()!=SHEET_REV:
+   check_idle();models();manifest()
   else:print('EXISTING MODELS READY',flush=True)
  print('TRANSCRIPTION INSTALL COMPLETE',flush=True)
 

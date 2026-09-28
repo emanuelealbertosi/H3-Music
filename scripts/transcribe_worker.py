@@ -13,8 +13,12 @@ try:
  progress({'stage':'loading','message':'Caricamento del modello locale'})
  import torch,numpy as np
  from transformers import AutoModel
+ from transformers.dynamic_module_utils import get_cached_module_file
  torch.set_num_threads(a.threads)
  if a.backend=='cuda' and not torch.cuda.is_available():raise RuntimeError('CUDA non disponibile. Seleziona CPU in Sistema o verifica il driver NVIDIA.')
+ # Transformers copies only direct local imports. The updated tokenizer adds
+ # chord_spelling_sheetsage2 as a transitive dependency of the model class.
+ get_cached_module_file(str(root/'models/SheetSage2'),'tokenization_sheetsage2.py',local_files_only=True)
  model=AutoModel.from_pretrained(str(root/'models/SheetSage2'),base_model_path=str(root/'models/MERT-v2-FullSong'),trust_remote_code=True,local_files_only=True).eval().to(a.backend)
  progress({'stage':'audio','message':'Lettura della registrazione'})
  args=[str(root/'runtime/ffmpeg.exe'),'-v','error','-nostdin','-protocol_whitelist','file,pipe','-ss',str(req['start']),'-i',a.input,'-t',str(req['end']-req['start']),'-vn','-ac','1','-ar','24000','-f','f32le','pipe:1']

@@ -7,7 +7,8 @@ for name,sha in expected.items():
  with (r/name).open('rb') as f:actual=hashlib.file_digest(f,'sha256').hexdigest()
  assert actual==sha,(name,actual)
  print('Verified',name,flush=True)
-(r/'models/transcription-manifest.json').write_text(json.dumps({'sheet_revision':'eab522a8168e8b8b8c4856bf8609cd86198f01fe','mert_revision':'d8ba1c745e733b3908ce6ad16ebeb17ac7600a42','sha256':expected},indent=2),encoding='utf-8')
+installed=json.loads((r/'models/transcription-manifest.json').read_text(encoding='utf-8'))
+assert installed['sheet_revision']==json.loads((r/'scripts/sheetsage2-revision.json').read_text(encoding='utf-8'))['revision']
 check=subprocess.run([str(r/'runtime/transcription/python.exe'),'-c',"import torch,json; assert torch.cuda.is_available(); x=torch.ones((256,256),device='cuda'); y=x@x; assert y[0,0].item()==256; print(json.dumps({'torch':torch.__version__,'gpu':torch.cuda.get_device_name(0),'cuda':torch.version.cuda,'architectures':torch.cuda.get_arch_list()}))"],capture_output=True,text=True,timeout=120)
 print(check.stdout,check.stderr,flush=True);assert check.returncode==0
 (r/'logs/transcription-cuda.json').write_text(check.stdout,encoding='utf-8')
