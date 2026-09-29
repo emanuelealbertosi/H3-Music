@@ -5,7 +5,7 @@ from pathlib import Path
 from contextlib import contextmanager
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT))
-import transcription, execution, cloning, mixing
+import transcription, execution, cloning, mixing, remote_access, library_cleanup
 APP=sys.modules[__name__]
 DATA=Path(os.environ.get('H3_MUSIC_DATA',str(ROOT/'data')))
 OUT=DATA/'outputs'
@@ -263,6 +263,9 @@ def mix_voice(job,d,converted,source=None,runner=None):
  return mixing.render(APP,job,d,converted,src,runner)
 
 def enqueue(data):
+ with LOCK:return _enqueue(data)
+
+def _enqueue(data):
  if data.get('kind')=='remix':return mixing.enqueue(APP,data)
  if data.get('kind') in ('clone','instrumental'): return cloning.enqueue(APP,data)
  if data.get('kind')=='transcribe': return transcription.enqueue(APP,data)
@@ -558,7 +561,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
  def json_response(self,data,status=200):
   b=jdump(data).encode('utf-8'); self.send_response(status); self.send_header('Content-Type','application/json; charset=utf-8'); self.send_header('Content-Length',str(len(b))); self.send_header('Cache-Control','no-store'); self.end_headers(); self.wfile.write(b)
  def check_host(self):
-  if self.headers.get('Host') not in (f'127.0.0.1:{PORT}',f'localhost:{PORT}'): raise PermissionError('Host non consentito.')
+  if self.headers.get('Host') not in remote_access.allowed_hosts(DATA,PORT): raise PermissionError('Host non consentito.')
  def file_response(self,path,download=False):
   if not path.is_file(): return self.json_response({'error':'File inesistente.'},404)
   size=path.stat().st_size; start=0; end=size-1
@@ -596,7 +599,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
      cuda=json.loads(run_capture([str(ROOT/'runtime/python/python.exe'),str(ROOT/'scripts/gpu_info.py')],15).stdout or '{}')
     except Exception: cuda={}
     motore='CUDA' if settings()['backend']=='cuda' else 'CPU'
-    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.5.4','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
+    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.5.6','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
    if path=='/api/voice-audio':
     ref=voice_sample(urllib.parse.parse_qs(parsed.query).get('name',[''])[0])
     if ref is None:raise ValueError('Campione vocale non trovato.')
@@ -623,7 +626,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
   try:
    self.check_host()
    origin=self.headers.get('Origin')
-   if self.headers.get('X-H3-Music')!='1' or origin and origin not in (f'http://127.0.0.1:{PORT}',f'http://localhost:{PORT}'): raise PermissionError('Richiesta non autorizzata.')
+   if self.headers.get('X-H3-Music')!='1' or origin and origin not in remote_access.allowed_origins(DATA,PORT): raise PermissionError('Richiesta non autorizzata.')
    size=int(self.headers.get('Content-Length',0))
    path=urllib.parse.urlparse(self.path).path
    if path=='/api/audio/upload': return self.json_response(transcription.upload(self,APP,size))
@@ -636,6 +639,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
    elif path=='/api/voices/import': result=cloning.import_voice(APP,data)
    elif path=='/api/jobs': result=enqueue(data)
    elif path=='/api/jobs/cancel': result=cancel(data['id'])
+   elif path=='/api/jobs/delete': result=library_cleanup.delete(APP,data.get('ids'))
    elif path=='/api/jobs/favorite':
     db('UPDATE jobs SET favorite=? WHERE id=?',(int(bool(data['favorite'])),data['id'])); result={'ok':True}
    elif path=='/api/jobs/retry':
