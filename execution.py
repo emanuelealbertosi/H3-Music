@@ -20,7 +20,7 @@ def check_engine(executable, backend='cuda'):
     loaders = json.loads(capture([executable, '--list-loaders', '--json']))['loaders']
     missing = REQUIRED_FAMILIES - set(loaders)
     if missing:
-        raise ValueError('Il motore non include ' + ', '.join(sorted(missing)) + ('. Esegui Attiva-GPU.bat per aggiornare la versione NVIDIA.' if backend=='cuda' else '. Esegui install.bat per aggiornare il motore CPU.'))
+        raise ValueError('Il motore non include ' + ', '.join(sorted(missing)) + ('. Esegui Attiva-GPU.bat per aggiornare la versione NVIDIA.' if backend=='cuda' else '. Esegui '+platform_runtime.setup_name()+' per aggiornare il motore CPU.'))
     devices = capture([executable, '--list-devices'])
     if backend == 'cuda' and not re.search(r'^CUDA:\d+\s', devices, re.M):
         raise ValueError('Il motore non rileva una GPU CUDA. Esegui Attiva-GPU.bat e controlla il driver NVIDIA.')

@@ -1,16 +1,16 @@
 """Reference upload and automatic voice replacement, with no music regeneration for imports."""
 import hashlib,json,shutil,math,array,sys,wave
-import transcription, mixing
+import transcription, mixing, platform_runtime
 
 def voice_steps(value=30):
  if type(value) is not int or value not in (30,50,100):raise ValueError('Qualità voce non valida: scegli 30, 50 o 100 passaggi.')
  return value
 
 def preflight(app,voice, instrumental=False):
- if not app.ENGINE.is_file() or not app.FFMPEG.is_file():raise ValueError('Completa prima install.bat.')
- if not app.separation_model():raise ValueError('Manca il modello di separazione: esegui install.bat per completarlo.')
+ if not app.ENGINE.is_file() or not app.FFMPEG.is_file():raise ValueError('Completa prima '+platform_runtime.setup_name()+'.')
+ if not app.separation_model():raise ValueError('Manca il modello di separazione: esegui '+platform_runtime.setup_name()+' per completarlo.')
  if instrumental:return None
- if not app.voice_model():raise ValueError('Manca il modello voce: esegui install.bat per completarlo.')
+ if not app.voice_model():raise ValueError('Manca il modello voce: esegui '+platform_runtime.setup_name()+' per completarlo.')
  ref=app.voice_sample(voice)
  if not ref or not ref.is_file():raise ValueError('Carica o scegli un campione di voce prima di avviare.')
  return ref

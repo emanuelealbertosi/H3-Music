@@ -33,6 +33,8 @@ I modelli hanno le stesse revisioni fisse della versione Windows. Apple Silicon 
 
 Prima di aggiornare i componenti termina i lavori e chiudi il servizio con **Ferma-Mac.command**. L'installatore conserva le preferenze esistenti.
 
+Per aggiornare solo i modelli di trascrizione puoi aprire **Aggiorna-Trascrizione-Mac.command**: mantiene Python e la scelta CPU/Metal e conserva un backup dei file sostituiti.
+
 ## Installazione dal clone GitHub
 
 Anche il clone è supportato: apri **Installa-Mac.command**. Scarica il motore precompilato della stessa anteprima e ne verifica il pacchetto con SHA-256; non devi compilare CUDA o installare un compilatore. La release deve essere già pubblicata perché il download funzioni.
