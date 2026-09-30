@@ -1,11 +1,14 @@
 import tempfile
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import platform_runtime
 import transcription
 from scripts.install_macos import transcription_requirements
+from scripts import launch_macos
 
 
 class PlatformRuntimeTests(unittest.TestCase):
@@ -32,6 +35,13 @@ class PlatformRuntimeTests(unittest.TestCase):
     def test_transcription_versions_match_available_architecture(self):
         self.assertIn('torch==2.8.0', transcription_requirements('arm64'))
         self.assertIn('torch==2.2.2', transcription_requirements('x86_64'))
+
+    def test_launcher_recognizes_only_h3_health(self):
+        import io
+        with patch.object(launch_macos.urllib.request, 'urlopen', return_value=io.BytesIO(b'{"app":"H3-Music","status":"ok"}')):
+            self.assertTrue(launch_macos.healthy())
+        with patch.object(launch_macos.urllib.request, 'urlopen', return_value=io.BytesIO(b'{"status":"ok"}')):
+            self.assertFalse(launch_macos.healthy())
 
 
 if __name__ == '__main__':

@@ -31,6 +31,8 @@ runtime/python/bin/python scripts/install_macos.py --quant bf16
 
 I modelli hanno le stesse revisioni fisse della versione Windows. Apple Silicon usa PyTorch 2.8; Intel usa 2.2.2, l'ultima versione con pacchetti macOS Intel. La trascrizione mantiene SheetSage2 e MERT-v2 e il calcolo in FP32.
 
+Prima di aggiornare i componenti termina i lavori e chiudi il servizio con **Ferma-Mac.command**. L'installatore conserva le preferenze esistenti.
+
 ## Installazione dal clone GitHub
 
 Anche il clone è supportato: apri **Installa-Mac.command**. Scarica il motore precompilato della stessa anteprima e ne verifica il pacchetto con SHA-256; non devi compilare CUDA o installare un compilatore. La release deve essere già pubblicata perché il download funzioni.

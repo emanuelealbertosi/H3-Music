@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import platform
 import shutil
+import sqlite3
 import subprocess
 import sys
 import urllib.request
@@ -22,6 +23,22 @@ DOWNLOAD = 'https://github.com/emanuelealbertosi/H3-Music/releases/download/' + 
 
 def run(*args):
     subprocess.run([str(x) for x in args], check=True, cwd=ROOT)
+
+
+def check_idle():
+    database = ROOT / 'data/music.sqlite'
+    if database.exists():
+        with sqlite3.connect(database) as connection:
+            if connection.execute("SELECT 1 FROM jobs WHERE status IN ('queued','running','cancelling') LIMIT 1").fetchone():
+                raise RuntimeError('Attendi o annulla i lavori in coda prima di installare o aggiornare.')
+    url = 'http://127.0.0.1:' + os.environ.get('H3_MUSIC_PORT', '8776') + '/api/health'
+    try:
+        with urllib.request.urlopen(url, timeout=2) as response:
+            active = json.load(response).get('app') == 'H3-Music'
+    except (OSError, ValueError):
+        active = False
+    if active:
+        raise RuntimeError('Chiudi il servizio con Ferma-Mac.command prima di installare o aggiornare.')
 
 
 def brew_path(formula, name):
@@ -80,6 +97,7 @@ def main():
         parser.error('Questo installatore è riservato a macOS.')
     if int(platform.mac_ver()[0].split('.')[0]) < 15:
         parser.error('Questa anteprima richiede macOS 15 o successivo.')
+    check_idle()
     if not shutil.which('brew'):
         raise RuntimeError('Installa prima Homebrew da https://brew.sh, poi riapri Installa-Mac.command.')
     if not args.no_models and shutil.disk_usage(ROOT).free < 20 * 2**30:
