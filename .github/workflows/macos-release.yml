@@ -54,6 +54,8 @@ jobs:
           python scripts/install_macos.py --no-models
           runtime/python/bin/python tests/macos_smoke.py
           runtime/python/bin/python -m unittest discover -s tests -p test_platform_runtime.py -v
+          runtime/python/bin/python -m unittest discover -s tests -p test_macos_space.py -v
+          runtime/python/bin/python tests/macos_installer_shell.py
           runtime/transcription/bin/python tests/transcription_runtime_smoke.py
       - name: Package native app
         run: python scripts/package_macos.py --engine runtime/engine/audiocpp_cli

@@ -9,6 +9,7 @@ import platform_runtime
 import transcription
 from scripts.install_macos import transcription_requirements
 from scripts import launch_macos
+from scripts import install_macos
 
 
 class PlatformRuntimeTests(unittest.TestCase):
@@ -42,6 +43,25 @@ class PlatformRuntimeTests(unittest.TestCase):
             self.assertTrue(launch_macos.healthy())
         with patch.object(launch_macos.urllib.request, 'urlopen', return_value=io.BytesIO(b'{"status":"ok"}')):
             self.assertFalse(launch_macos.healthy())
+
+    def test_homebrew_updates_before_installing_dependencies(self):
+        with patch.dict(install_macos.os.environ, {'H3_MUSIC_BREW_UPDATED': ''}), patch.object(install_macos, 'run') as run:
+            install_macos.prepare_homebrew()
+        self.assertEqual(run.call_args_list[0].args, ('brew', 'update'))
+        self.assertEqual(run.call_args_list[1].args, ('brew', 'install', '--skip-link', 'python@3.12', 'python@3.11', 'ffmpeg'))
+
+    def test_homebrew_update_failure_prevents_install(self):
+        import subprocess
+        with patch.dict(install_macos.os.environ, {'H3_MUSIC_BREW_UPDATED': ''}), patch.object(install_macos, 'run', side_effect=subprocess.CalledProcessError(1, ['brew', 'update'])) as run:
+            with self.assertRaises(subprocess.CalledProcessError):
+                install_macos.prepare_homebrew()
+        self.assertEqual(run.call_count, 1)
+
+    def test_homebrew_is_not_updated_twice_by_command_launcher(self):
+        with patch.dict(install_macos.os.environ, {'H3_MUSIC_BREW_UPDATED': '1'}), patch.object(install_macos, 'run') as run:
+            install_macos.prepare_homebrew()
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(run.call_args.args[1], 'install')
 
 
 if __name__ == '__main__':

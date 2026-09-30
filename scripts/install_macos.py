@@ -16,8 +16,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import platform_runtime
 import execution
+from scripts import macos_space
 
-RELEASE = 'v1.6.0-macos-preview.1'
+RELEASE = 'v1.6.0-macos-preview.2'
 DOWNLOAD = 'https://github.com/emanuelealbertosi/H3-Music/releases/download/' + RELEASE
 
 
@@ -44,6 +45,18 @@ def check_idle():
 def brew_path(formula, name):
     prefix = subprocess.check_output(['brew', '--prefix', formula], text=True).strip()
     return Path(prefix) / 'bin' / name
+
+
+def prepare_homebrew():
+    os.environ['HOMEBREW_NO_AUTO_UPDATE'] = '1'
+    # Formulae use macOS names added in newer Homebrew versions. Update brew
+    # itself first, including on macOS 27; don't upgrade unrelated packages.
+    if os.environ.get('H3_MUSIC_BREW_UPDATED') != '1':
+        print('Aggiornamento di Homebrew…', flush=True)
+        run('brew', 'update')
+    # Use each formula's own prefix. Do not overwrite a Python already
+    # installed by the user (or the Python.org tools on CI Intel runners).
+    run('brew', 'install', '--skip-link', 'python@3.12', 'python@3.11', 'ffmpeg')
 
 
 def install_engine():
@@ -100,12 +113,9 @@ def main():
     check_idle()
     if not shutil.which('brew'):
         raise RuntimeError('Installa prima Homebrew da https://brew.sh, poi riapri Installa-Mac.command.')
-    if not args.no_models and shutil.disk_usage(ROOT).free < 20 * 2**30:
-        raise RuntimeError('Servono almeno 20 GB liberi per preparare tutti i componenti.')
-    os.environ['HOMEBREW_NO_AUTO_UPDATE'] = '1'
-    # Use each formula's own prefix. Do not overwrite a Python already
-    # installed by the user (or the Python.org tools on CI Intel runners).
-    run('brew', 'install', '--skip-link', 'python@3.12', 'python@3.11', 'ffmpeg')
+    if not args.no_models:
+        macos_space.check(ROOT, args.quant)
+    prepare_homebrew()
     runtime = ROOT / 'runtime'
     runtime.mkdir(exist_ok=True)
     for component, formula, executable in [('python', 'python@3.12', 'python3.12'),

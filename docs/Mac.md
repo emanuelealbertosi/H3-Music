@@ -1,11 +1,11 @@
 # H3-Music per Mac · anteprima
 
-Scarica il pacchetto adatto da [GitHub Releases](https://github.com/emanuelealbertosi/H3-Music/releases/tag/v1.6.0-macos-preview.1):
+Scarica il pacchetto adatto da [GitHub Releases](https://github.com/emanuelealbertosi/H3-Music/releases/tag/v1.6.0-macos-preview.2):
 
 - **H3-Music-Mac-arm64.zip** per Apple Silicon (M1, M2, M3 e successivi).
 - **H3-Music-Mac-x86_64.zip** per Mac Intel.
 
-Questa anteprima richiede **macOS 15 o successivo**, circa **20 GB liberi** per l'installazione e preferibilmente **32 GB di RAM** per generare musica. La generazione può occupare molta più memoria dei soli pesi; i tempi dipendono dal Mac e dal brano. I Mac con poca RAM non sono un obiettivo garantito di questa anteprima.
+Questa anteprima richiede **macOS 15 o successivo**, circa **15 GB liberi effettivi** per una prima installazione Q4 (consigliati 20 GB) e preferibilmente **32 GB di RAM** per generare musica. La generazione può occupare molta più memoria dei soli pesi; i tempi dipendono dal Mac e dal brano. I Mac con poca RAM non sono un obiettivo garantito di questa anteprima.
 
 ## Installazione
 
@@ -13,6 +13,12 @@ Questa anteprima richiede **macOS 15 o successivo**, circa **20 GB liberi** per 
 2. Estrai lo ZIP e sposta la cartella **H3-Music** in una posizione stabile, ad esempio nella tua cartella utente. Evita cartelle protette o sincronizzate mentre generi.
 3. Apri **Installa-Mac.command**. Prepara Python e FFmpeg, i modelli musicali, la separazione, il cambio voce e la trascrizione. Il primo avvio scarica diversi GB; dopo un'interruzione puoi riaprire l'installatore.
 4. Apri **Avvia-Mac.command**: lo studio appare nel browser predefinito. **Ferma-Mac.command** arresta il servizio locale.
+
+Il controllo dello spazio stima i modelli mancanti e include un margine per Python, Homebrew e file temporanei. Mostra cartella controllata, GB liberi effettivi e GB aggiuntivi stimati; i file già installati vengono riconosciuti tramite hash. Finder può mostrare anche spazio eliminabile ancora da liberare.
+
+L'installatore aggiorna prima Homebrew, anche su Golden Gate 27, poi prepara i componenti. La scritta del Terminale «Processo completato» indica soltanto che il comando è terminato: il successo dell'installazione è confermato dal messaggio **Installazione completata**. In caso di errore viene invece mostrato **Installazione NON completata**.
+
+Se una copia precedente si ferma con `unknown or unsupported macOS version: :dunno`, apri Terminale, esegui `brew update` e riprova. Se l'aggiornamento fallisce, conserva l'errore e l'output di `brew --version` e `sw_vers -productVersion`; non forzare una versione diversa di macOS. Vedi la [guida ufficiale Homebrew](https://docs.brew.sh/Common-Issues).
 
 Il pacchetto è **non firmato e non notarizzato**. Se macOS blocca l'apertura, autorizza il file appena aperto in **Impostazioni di Sistema → Privacy e sicurezza → Apri comunque**. Scarica solo dal repository indicato sopra. Non è una pubblicazione sull'App Store.
 
