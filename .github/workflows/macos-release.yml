@@ -26,8 +26,10 @@ jobs:
           xcrun --find metal || xcodebuild -downloadComponent MetalToolchain
       - name: Fetch pinned audio engine
         run: |
-          git clone --no-checkout https://github.com/0xShug0/audio.cpp.git vendor/audio.cpp
-          git -C vendor/audio.cpp checkout 13c4192a28d6a212f075c4cbefc5e4983e6ed52a
+          git init vendor/audio.cpp
+          git -C vendor/audio.cpp remote add origin https://github.com/0xShug0/audio.cpp.git
+          git -C vendor/audio.cpp fetch --depth 1 origin 13c4192a28d6a212f075c4cbefc5e4983e6ed52a
+          git -C vendor/audio.cpp checkout FETCH_HEAD
           python scripts/patch_engine.py
       - name: Build CPU and Metal engine
         run: |
