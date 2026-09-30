@@ -1,6 +1,7 @@
 """CPU-first execution and explicit, checked CUDA activation (stdlib only)."""
 import json, os, re, subprocess
 from pathlib import Path
+import platform_runtime
 
 REQUIRED_FAMILIES = {'yue2', 'htdemucs', 'seed_vc'}
 HIDDEN = 0x08000000 if os.name == 'nt' else 0
@@ -15,7 +16,7 @@ def capture(args, timeout=60):
 def check_engine(executable, backend='cuda'):
     executable = Path(executable)
     if not executable.is_file():
-        raise ValueError('Motore assente: esegui install.bat.')
+        raise ValueError('Motore assente: esegui '+platform_runtime.setup_name()+'.')
     loaders = json.loads(capture([executable, '--list-loaders', '--json']))['loaders']
     missing = REQUIRED_FAMILIES - set(loaders)
     if missing:
@@ -25,6 +26,8 @@ def check_engine(executable, backend='cuda'):
         raise ValueError('Il motore non rileva una GPU CUDA. Esegui Attiva-GPU.bat e controlla il driver NVIDIA.')
     if backend == 'cpu' and not re.search(r'^CPU:\d+\s', devices, re.M):
         raise ValueError('Il motore non include il dispositivo CPU.')
+    if backend == 'metal' and not re.search(r'^Metal:\d+\s',devices,re.M|re.I):
+        raise ValueError('Il motore non rileva una GPU Metal. Seleziona CPU in Sistema.')
     return {'families': sorted(loaders), 'devices': devices.strip()}
 
 def transcription_python(root, backend):
@@ -32,7 +35,7 @@ def transcription_python(root, backend):
     separate = root/'runtime/transcription-cuda/python.exe'
     if backend == 'cuda' and separate.is_file():
         return separate
-    return root/'runtime/transcription/python.exe'
+    return platform_runtime.python(root,'transcription')
 
 def check_torch(executable, cuda=False):
     code = "import json,torch,torchaudio,transformers,numpy; print(json.dumps({'torch':torch.__version__,'torchaudio':torchaudio.__version__,'cuda':bool(torch.cuda.is_available())}))"

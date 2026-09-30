@@ -1,0 +1,49 @@
+name: Mac packages
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+          - runner: macos-15-intel
+            architecture: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build tools
+        run: |
+          brew install cmake ninja
+          xcrun --find metal || xcodebuild -downloadComponent MetalToolchain
+      - name: Fetch pinned audio engine
+        run: |
+          git clone --no-checkout https://github.com/0xShug0/audio.cpp.git vendor/audio.cpp
+          git -C vendor/audio.cpp checkout 13c4192a28d6a212f075c4cbefc5e4983e6ed52a
+          python scripts/patch_engine.py
+      - name: Build CPU and Metal engine
+        run: |
+          bash vendor/audio.cpp/scripts/build_metal.sh --build-dir "$PWD/build-mac" --build-type Release --archs '${{ matrix.architecture }}' --deployment-target 15.0 --openmp OFF --native-cpu OFF --deployment-build --model-set custom --models yue2,htdemucs,seed_vc --target audiocpp_cli --jobs 3
+          mkdir -p runtime/engine
+          cp build-mac/bin/audiocpp_cli runtime/engine/audiocpp_cli
+          python scripts/verify_engine.py --engine runtime/engine/audiocpp_cli --backend cpu
+      - name: Install and test Mac runtimes
+        run: |
+          python scripts/install_macos.py --no-models
+          runtime/python/bin/python tests/macos_smoke.py
+          runtime/python/bin/python -m unittest discover -s tests -p test_platform_runtime.py -v
+      - name: Package native app
+        run: python scripts/package_macos.py --engine runtime/engine/audiocpp_cli
+      - uses: actions/upload-artifact@v4
+        with:
+          name: H3-Music-Mac-${{ matrix.architecture }}
+          path: release-output/*
+          if-no-files-found: error

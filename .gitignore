@@ -5,6 +5,8 @@ models/*
 !models/tools-manifest.json
 runtime/
 vendor/
+build-mac/
+release-output/
 __pycache__/
 *.pyc
 tests/tmp*/

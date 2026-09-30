@@ -8,6 +8,9 @@
 *.md text eol=lf
 *.cs text eol=lf
 *.bat text eol=crlf
+*.command text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
 licenses/** -text
 static/score-assets/** -text
 docs/*.patch -text

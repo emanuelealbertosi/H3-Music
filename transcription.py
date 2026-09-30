@@ -1,15 +1,20 @@
 """Local audio imports and SheetSage2 queue integration (stdlib only)."""
 import hashlib,json,math,re,shutil,time,urllib.parse,uuid
 from pathlib import Path
-import execution
+import execution, platform_runtime
 MAX_UPLOAD=256*1024*1024
 EXTENSIONS={'.mp3','.wav','.flac','.m4a','.ogg','.opus','.aac','.aif','.aiff','.wma','.mp4'}
 
 def status(root,backend="cpu"):
  files={'runtime/transcription/python.exe':None,'runtime/transcription/Lib/site-packages/torch/__init__.py':None,'runtime/transcription/Lib/site-packages/transformers/__init__.py':None,'models/SheetSage2/model.safetensors':228738564,'models/MERT-v2-FullSong/model.safetensors':2529812848,'runtime/ffmpeg.exe':None,'runtime/transcription/installed.json':None,'models/transcription-manifest.json':None}
  runtime=execution.transcription_python(root,backend).parent
+ if not platform_runtime.windows():runtime=runtime.parent
  selected=runtime.relative_to(root).as_posix()+'/'
  files={n.replace('runtime/transcription/',selected):size for n,size in files.items()}
+ if not platform_runtime.windows():
+  files={n:size for n,size in files.items() if '/Lib/site-packages/' not in n and not n.endswith('/python.exe') and n!='runtime/ffmpeg.exe'}
+  files[execution.transcription_python(root,backend).relative_to(root).as_posix()]=None
+  files[platform_runtime.binary(root,'ffmpeg').relative_to(root).as_posix()]=None
  missing=[n for n,size in files.items() if not (root/n).is_file() or size and (root/n).stat().st_size!=size]
  revision=installed_revision(root)
  try:expected=json.loads((root/'scripts/sheetsage2-revision.json').read_text(encoding='utf-8'))['revision']
@@ -57,7 +62,7 @@ def upload(handler,app,size):
     if not block:raise ValueError('Caricamento interrotto.')
     f.write(block);digest.update(block);remaining-=len(block)
   # Decode one sample as well as probing: media is never interpreted as a playlist/network URL.
-  probe=app.run_capture([str(app.ROOT/'runtime/ffprobe.exe'),'-v','error','-protocol_whitelist','file,pipe','-show_entries','format=format_name,duration:stream=codec_type','-of','json',str(temp)],30)
+  probe=app.run_capture([str(platform_runtime.binary(app.ROOT,'ffprobe')),'-v','error','-protocol_whitelist','file,pipe','-show_entries','format=format_name,duration:stream=codec_type','-of','json',str(temp)],30)
   if probe.returncode:raise ValueError('Il file non contiene audio leggibile.')
   parsed=json.loads(probe.stdout);fmt=parsed.get('format',{}).get('format_name','')
   if not set(fmt.split(',')).intersection({'mp3','wav','flac','ogg','mov','mp4','m4a','3gp','3g2','mj2','aac','aiff','asf'}):raise ValueError('Contenitore audio non supportato.')
@@ -93,7 +98,7 @@ def command(app,job,d):
  app.write_json(d/'source.json',meta)
  app.write_json(d/'transcription-version.json',{'sheet_revision':installed_revision(app.ROOT)})
  # Relative source id is validated above; the child receives paths controlled by the app.
- return [str(execution.transcription_python(app.ROOT,app.settings()['backend'])),'-u',str(app.ROOT/'scripts/transcribe_worker.py'),'--input',str(path),'--output',str(d),'--root',str(app.ROOT),'--backend',app.settings()['backend'],'--threads',str(app.settings()['threads'])]
+ return [str(execution.transcription_python(app.ROOT,app.settings()['backend'])),'-u',str(app.ROOT/'scripts/transcribe_worker.py'),'--input',str(path),'--output',str(d),'--root',str(app.ROOT),'--backend',platform_runtime.transcription_backend(app.settings()['backend']),'--threads',str(app.settings()['threads'])]
 
 def finish(app,job,d):
  p=d/'result.json'
