@@ -103,7 +103,9 @@ def main():
     if not args.no_models and shutil.disk_usage(ROOT).free < 20 * 2**30:
         raise RuntimeError('Servono almeno 20 GB liberi per preparare tutti i componenti.')
     os.environ['HOMEBREW_NO_AUTO_UPDATE'] = '1'
-    run('brew', 'install', 'python@3.12', 'python@3.11', 'ffmpeg')
+    # Use each formula's own prefix. Do not overwrite a Python already
+    # installed by the user (or the Python.org tools on CI Intel runners).
+    run('brew', 'install', '--skip-link', 'python@3.12', 'python@3.11', 'ffmpeg')
     runtime = ROOT / 'runtime'
     runtime.mkdir(exist_ok=True)
     for component, formula, executable in [('python', 'python@3.12', 'python3.12'),

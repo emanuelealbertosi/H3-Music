@@ -24,7 +24,13 @@ jobs:
         run: |
           brew install cmake ninja
           xcrun --find metal || xcodebuild -downloadComponent MetalToolchain
+      - uses: actions/cache/restore@v4
+        id: engine-cache
+        with:
+          path: runtime/engine/audiocpp_cli
+          key: mac-engine-v1-${{ matrix.architecture }}-13c4192-${{ hashFiles('scripts/patch_engine.py') }}
       - name: Fetch pinned audio engine
+        if: steps.engine-cache.outputs.cache-hit != 'true'
         run: |
           git init vendor/audio.cpp
           git -C vendor/audio.cpp remote add origin https://github.com/0xShug0/audio.cpp.git
@@ -32,11 +38,17 @@ jobs:
           git -C vendor/audio.cpp checkout FETCH_HEAD
           python scripts/patch_engine.py
       - name: Build CPU and Metal engine
+        if: steps.engine-cache.outputs.cache-hit != 'true'
         run: |
           bash vendor/audio.cpp/scripts/build_metal.sh --build-dir "$PWD/build-mac" --build-type Release --archs '${{ matrix.architecture }}' --deployment-target 15.0 --openmp OFF --native-cpu OFF --deployment-build --model-set custom --models yue2,htdemucs,seed_vc --target audiocpp_cli --jobs 3
           mkdir -p runtime/engine
           cp build-mac/bin/audiocpp_cli runtime/engine/audiocpp_cli
           python scripts/verify_engine.py --engine runtime/engine/audiocpp_cli --backend cpu
+      - uses: actions/cache/save@v4
+        if: steps.engine-cache.outputs.cache-hit != 'true'
+        with:
+          path: runtime/engine/audiocpp_cli
+          key: ${{ steps.engine-cache.outputs.cache-primary-key }}
       - name: Install and test Mac runtimes
         run: |
           python scripts/install_macos.py --no-models

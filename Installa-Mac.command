@@ -9,7 +9,7 @@ if ! command -v brew >/dev/null 2>&1; then
   exit 1
 fi
 export HOMEBREW_NO_AUTO_UPDATE=1
-brew install python@3.12
+brew install --skip-link python@3.12
 "$(brew --prefix python@3.12)/bin/python3.12" scripts/install_macos.py "$@" || {
   echo "Installazione interrotta. Puoi riaprire questo file per riprovare."
   read -r -p "Premi Invio per chiudere…"
