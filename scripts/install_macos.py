@@ -10,6 +10,7 @@ import sqlite3
 import subprocess
 import sys
 import urllib.request
+import uuid
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,7 +68,10 @@ def install_engine():
     engine = platform_runtime.binary(ROOT, 'audiocpp_cli', engine=True)
     if engine.is_file():
         execution.check_engine(engine, 'cpu')
-        return
+        content = engine.read_bytes()
+        if b'yue2.ar_lora' in content and b'yue2.nar_lora' in content:
+            return
+        print('Aggiorno il motore Mac per abilitare i LoRA opzionali…', flush=True)
     architecture = platform.machine()
     if architecture not in ('arm64', 'x86_64'):
         raise RuntimeError('Architettura Mac non supportata: ' + architecture)
@@ -85,12 +89,23 @@ def install_engine():
             raise RuntimeError('Pacchetto Mac non integro: riprova l’installazione.')
     with zipfile.ZipFile(archive) as package:
         content = package.read('H3-Music/runtime/engine/audiocpp_cli')
+    if b'yue2.ar_lora' not in content or b'yue2.nar_lora' not in content:
+        raise RuntimeError('Il pacchetto Mac non contiene il motore LoRA previsto. Il motore precedente è conservato.')
     engine.parent.mkdir(parents=True, exist_ok=True)
     staged = engine.with_suffix('.tmp')
     staged.write_bytes(content)
     staged.chmod(0o755)
     execution.check_engine(staged, 'cpu')
-    staged.replace(engine)
+    backup = engine.with_name(engine.name + '.backup-' + uuid.uuid4().hex[:12])
+    previous = engine.is_file()
+    if previous:
+        engine.replace(backup)
+    try:
+        staged.replace(engine)
+    except BaseException:
+        if previous:
+            backup.replace(engine)
+        raise
     archive.unlink()
 
 

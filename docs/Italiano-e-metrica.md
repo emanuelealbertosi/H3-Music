@@ -30,7 +30,9 @@ Una vecchia versione del motore non può applicare i LoRA. Dopo il pull,
 aggiorna la CPU con **install.bat**, oppure ricompila il motore NVIDIA con
 **Attiva-GPU.bat**. L'installatore conserva un motore CUDA funzionante:
 in quel caso serve Attiva-GPU.bat anche se install.bat è già stato eseguito.
-Su Mac usa **Installa-Mac.command** con il nuovo pacchetto della release.
+Su Mac usa **Installa-Mac.command** dopo il pull oppure con il nuovo
+pacchetto della release. Anche un vecchio motore CPU già funzionante viene
+aggiornato se manca il supporto LoRA, conservando il binario precedente.
 L'app segnala i motori incompatibili prima di accodare il lavoro.
 
 Provenienza: [CNZN LoRA by becausereasons](https://huggingface.co/becausereasons/yue2-cnzn-canzone-italiana),

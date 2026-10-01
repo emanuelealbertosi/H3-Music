@@ -25,3 +25,4 @@ jobs:
           python tests/test_transcription_notation.py
           python tests/test_loras.py
           python tests/test_lyric_meter.py
+          python tests/test_macos_lora_engine.py

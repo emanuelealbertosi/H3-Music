@@ -1,6 +1,6 @@
 # Collaudo 1.8
 
-La suite comprende 152 test Python e sette verifiche dell'interfaccia.
+La suite comprende 155 test Python e sette verifiche dell'interfaccia.
 Copre anche creazione normale, CPU/GPU, cartella dei modelli, libreria,
 risultati nello Studio, base originale e intervalli ai due lati dei 150 secondi.
 
@@ -30,6 +30,7 @@ le parti AR/NAR e in tutti i 28 livelli. La separazione delle proiezioni
 fuse conserva l'intera matrice A e suddivide le righe B, anche quando
 i ranghi sono condivisi. Ogni LoRA ha prodotto audio sul motore CUDA
 con i valori consigliati dall'autore; i log confermano entrambe le parti.
+Tutti e quattro producono audio anche sulla CPU con Q4.
 
 L'adattamento metrico è verificato con risposte simulate, anche errate,
 e con un LLM reale da 12B in LM Studio **su CPU**. La prova traduce
@@ -42,3 +43,9 @@ I controlli dell'interfaccia verificano che la proposta non sostituisca
 il testo prima di **Applica**, che l'applicazione cambi soltanto le parole,
 che pause, legature e ripetizioni entrino nella lettura della melodia e
 che le nuove scelte siano utilizzabili anche su uno schermo piccolo.
+
+L'installatore Mac aggiorna anche un motore CPU già funzionante che non
+supporta ancora i LoRA. Il candidato viene controllato prima della
+sostituzione e il motore precedente rimane in un backup. I test verificano
+l'aggiornamento, la conservazione di un motore già compatibile e il
+mantenimento del precedente quando la verifica del candidato fallisce.

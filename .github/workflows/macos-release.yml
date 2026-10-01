@@ -61,6 +61,7 @@ jobs:
           runtime/python/bin/python tests/test_transcription_notation.py
           runtime/python/bin/python tests/test_loras.py
           runtime/python/bin/python tests/test_lyric_meter.py
+          runtime/python/bin/python tests/test_macos_lora_engine.py
           runtime/python/bin/python tests/macos_installer_shell.py
           runtime/transcription/bin/python tests/transcription_runtime_smoke.py
       - name: Package native app

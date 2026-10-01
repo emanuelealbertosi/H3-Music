@@ -1,0 +1,48 @@
+name: Mac packages from verified engines
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+          - runner: macos-15-intel
+            architecture: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # A cache entry is saved by macos-release.yml only after the pinned
+      # engine compiles and passes the CPU device/family checks. The key
+      # includes every native patch: changed C++ cannot reuse an old engine.
+      - uses: actions/cache/restore@v4
+        id: engine
+        with:
+          path: runtime/engine/audiocpp_cli
+          key: mac-engine-v2-${{ matrix.architecture }}-13c4192-${{ hashFiles('scripts/patch_engine.py', 'scripts/engine-lora/**') }}
+      - name: Require and recheck the verified native engine
+        run: |
+          test '${{ steps.engine.outputs.cache-hit }}' = 'true'
+          python scripts/verify_engine.py --engine runtime/engine/audiocpp_cli --backend cpu
+          python -c "from pathlib import Path; b=Path('runtime/engine/audiocpp_cli').read_bytes(); assert b'yue2.ar_lora' in b and b'yue2.nar_lora' in b"
+      - name: Check updated source and Mac engine upgrade
+        run: |
+          python tests/test_transcription_notation.py
+          python tests/test_loras.py
+          python tests/test_lyric_meter.py
+          python tests/test_macos_lora_engine.py
+      - name: Package current source with native engine
+        run: python scripts/package_macos.py --engine runtime/engine/audiocpp_cli
+      - uses: actions/upload-artifact@v4
+        with:
+          name: H3-Music-Mac-${{ matrix.architecture }}
+          path: release-output/*
+          if-no-files-found: error
