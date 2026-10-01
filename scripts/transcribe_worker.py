@@ -22,6 +22,8 @@ try:
  # chord_spelling_sheetsage2 as a transitive dependency of the model class.
  get_cached_module_file(str(models/'SheetSage2'),'tokenization_sheetsage2.py',local_files_only=True)
  model=AutoModel.from_pretrained(str(models/'SheetSage2'),base_model_path=str(models/'MERT-v2-FullSong'),trust_remote_code=True,local_files_only=True).eval().to(a.backend)
+ from scripts.transcription_notation import install_export_compatibility
+ install_export_compatibility(model)
  progress({'stage':'audio','message':'Lettura della registrazione'})
  args=[str(platform_runtime.binary(root,'ffmpeg')),'-v','error','-nostdin','-protocol_whitelist','file,pipe','-ss',str(req['start']),'-i',a.input,'-t',str(req['end']-req['start']),'-vn','-ac','1','-ar','24000','-f','f32le','pipe:1']
  decoded=subprocess.run(args,capture_output=True,timeout=600,creationflags=0x08000000 if os.name=='nt' else 0)
@@ -32,7 +34,7 @@ try:
  midi=pretty_midi.PrettyMIDI(io.BytesIO(result['midi']))
  tracks=[{'name':i.name,'notes':[{'pitch':n.pitch,'velocity':n.velocity,'start':n.start,'end':n.end} for n in i.notes]} for i in midi.instruments if not i.is_drum]
  (out/'preview-notes.json').write_text(json.dumps({'duration':result['duration_seconds'],'tracks':tracks}),encoding='utf-8')
- progress({'stage':'complete','message':'Spartito e MIDI pronti'})
+ progress({'stage':'complete','message':'Spartito e MIDI pronti' if result.get('abc') else 'Note e MIDI pronti; spartito ABC non disponibile'})
 except Exception as e:
  progress({'stage':'error','message':str(e)})
  import traceback;traceback.print_exc();sys.exit(1)

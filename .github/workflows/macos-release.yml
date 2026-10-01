@@ -28,7 +28,7 @@ jobs:
         id: engine-cache
         with:
           path: runtime/engine/audiocpp_cli
-          key: mac-engine-v1-${{ matrix.architecture }}-13c4192-${{ hashFiles('scripts/patch_engine.py') }}
+          key: mac-engine-v2-${{ matrix.architecture }}-13c4192-${{ hashFiles('scripts/patch_engine.py', 'scripts/engine-lora/**') }}
       - name: Fetch pinned audio engine
         if: steps.engine-cache.outputs.cache-hit != 'true'
         run: |
@@ -58,6 +58,9 @@ jobs:
           runtime/python/bin/python -m unittest discover -s tests -p test_model_store.py -v
           runtime/python/bin/python -m unittest discover -s tests -p test_transcription_update.py -v
           runtime/python/bin/python -m unittest discover -s tests -p test_windows_engine.py -v
+          runtime/python/bin/python tests/test_transcription_notation.py
+          runtime/python/bin/python tests/test_loras.py
+          runtime/python/bin/python tests/test_lyric_meter.py
           runtime/python/bin/python tests/macos_installer_shell.py
           runtime/transcription/bin/python tests/transcription_runtime_smoke.py
       - name: Package native app

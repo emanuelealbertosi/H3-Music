@@ -5,7 +5,7 @@ from pathlib import Path
 from contextlib import contextmanager
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT))
-import transcription, execution, cloning, mixing, remote_access, library_cleanup, platform_runtime, model_store, resinging
+import transcription, execution, cloning, mixing, remote_access, library_cleanup, platform_runtime, model_store, resinging, loras, lyric_meter
 APP=sys.modules[__name__]
 DATA=Path(os.environ.get('H3_MUSIC_DATA',str(ROOT/'data')))
 OUT=DATA/'outputs'
@@ -16,6 +16,7 @@ ACTIVE={}
 WAKE=threading.Event()
 MODEL=model_store.location(ROOT)/'yue2'
 MODEL_OPERATION={'status':'idle'}
+LORA_OPERATION={'status':'idle'}
 ENGINE=platform_runtime.binary(ROOT,'audiocpp_cli',engine=True)
 FFMPEG=platform_runtime.binary(ROOT,'ffmpeg')
 DEFAULTS={'backend':'cpu','threads':8,'llm_url':'http://127.0.0.1:1234/v1','llm_model':'','paused':False,'model':'q8'}
@@ -59,6 +60,7 @@ def validate(req):
  if not isinstance(req,dict): raise ValueError('Progetto non valido.')
  r={k:str(req.get(k,'')).strip() for k in ('title','style','lyrics','abc','notes')}
  r['abc']=normalize_abc(r['abc'])
+ r['lora']=loras.validate(req.get('lora',''))
  r['title']=r['title'][:120] or 'Senza titolo'
  for k,limit in [('style',4000),('lyrics',16000),('abc',50000),('notes',20000)]:
   if len(r[k])>limit: raise ValueError(k+': testo troppo lungo.')
@@ -316,6 +318,9 @@ def _enqueue(data):
  pid=data.get('project_id'); p=db('SELECT * FROM projects WHERE id=?',(pid,),True)
  if not p: raise ValueError('Salva prima il progetto.')
  req=validate(data.get('request',json.loads(p['request'])))
+ if req['lora']:
+  loras.session_options(ROOT,req['lora'])
+  check_lora_engine()
  if not req['lyrics'] or not req['style'] and not req['base_enabled']: raise ValueError('Inserisci stile musicale e testo.')
  kind=data.get('kind','generate')
  if kind not in ('generate','plan'): raise ValueError('Operazione non valida.')
@@ -382,13 +387,16 @@ def command_for(job,d):
   s=settings()
   inp=normalize_audio(source_audio(job['request'].get('source_id')),d/'input.wav')
   return [str(ENGINE),'--task','sep','--family','htdemucs','--model',str(separation_model()),'--backend',s['backend'],'--threads',str(s['threads']),'--audio',str(inp),'--out-dir',str(d),'--log','--metrics']
- req=job['request']; opts=req['options']|{'style':req['style'],'cot':req['cot'],'seed':str(req['seed']),'h3_artifact_dir':str(d),'h3_plan_only':'true' if job['kind']=='plan' else 'false'}
+ req=job['request']; opts=req['options']|{'style':loras.style_prompt(req['style'],req.get('lora','')),'cot':req['cot'],'seed':str(req['seed']),'h3_artifact_dir':str(d),'h3_plan_only':'true' if job['kind']=='plan' else 'false'}
  if req['abc']:
   (d/'input.abc').write_text(normalize_abc(req['abc']),encoding='utf-8',newline='\n'); opts['abc_file']=str(d/'input.abc')
  write_json(d/'request.json',req)
  write_json(d/'engine-request.json',[{'id':'audio','text':req['lyrics'],'options':opts}])
  s=settings()
  cmd=[str(ENGINE),'--task','gen','--family','yue2','--model',str(MODEL),'--backend',s['backend'],'--threads',str(s['threads']),'--session-option','yue2.model_gguf='+main_model_file()]
+ if req.get('lora'):
+  check_lora_engine()
+  for k,v in loras.session_options(ROOT,req['lora']).items():cmd+=['--session-option',f'{k}={v}']
  for k,v in memory_profile().items(): cmd+=[ '--session-option','%s=%s'%(k,v)]
  return cmd+['--request-sequence',str(d/'engine-request.json'),'--out-dir',str(d),'--log','--metrics']
 
@@ -547,6 +555,27 @@ def local_llm_url(value):
  if u.scheme!='http' or u.hostname not in ('127.0.0.1','localhost','::1') or u.username or u.password or u.query or u.fragment: raise ValueError('L’assistente richiede un indirizzo HTTP locale, per esempio http://127.0.0.1:1234/v1.')
  return str(value).rstrip('/')
 
+def check_lora_engine():
+ help_text=run_capture([str(ENGINE),'--family','yue2','--model',str(MODEL),'--help'],30).stdout
+ if not all(k in help_text for k in ('yue2.ar_lora','yue2.nar_lora')):
+  raise ValueError('Il motore installato non supporta ancora i LoRA. Aggiorna il motore con '+('Installa-Mac.command' if platform_runtime.macos() else 'install.bat (CPU) o Attiva-GPU.bat (NVIDIA)')+'.')
+
+def install_loras():
+ global LORA_OPERATION
+ with LOCK:
+  if LORA_OPERATION['status'] in ('starting','downloading','converting'):raise ValueError('Installazione LoRA già in corso.')
+  with model_store.exclusive(ROOT):model_store.check_idle(ROOT)
+  LORA_OPERATION={'status':'starting'}
+  def run():
+   try:
+    def report(**values):
+     with LOCK:LORA_OPERATION.update(values)
+    loras.install(ROOT,report)
+   except Exception as e:
+    with LOCK:LORA_OPERATION.update(status='failed',error=str(e))
+  threading.Thread(target=run,daemon=True).start()
+ return {'ok':True}
+
 def llm(path,payload=None):
  s=settings(); url=local_llm_url(s['llm_url'])+path
  req=urllib.request.Request(url,data=jdump(payload).encode() if payload else None,headers={'Content-Type':'application/json'})
@@ -567,6 +596,21 @@ def assist(data):
  except json.JSONDecodeError: raise ValueError('L’assistente non ha restituito JSON valido. Riprova con una richiesta più breve.')
  merged=req|{k:suggestion[k] for k in ('title','style','lyrics','abc') if k in suggestion}
  return {'request':validate(merged)}
+
+def lyric_context(data):
+ req=validate(data.get('request',{}))
+ if req['base_enabled']:
+  _,meta=transcription.source(DATA,req['base_import_id']);start=req['base_start'];end=req['base_end'] or meta['duration']
+  for row in db("SELECT * FROM jobs WHERE status='completed' AND kind IN ('transcribe','generate') ORDER BY finished DESC"):
+   old=json.loads(row['request']);original=old.get('base_enabled',False)
+   source=old.get('base_import_id') if original else old.get('source_id')
+   a=old.get('base_start',0) if original else old.get('start',0);b=old.get('base_end',0) if original else old.get('end',0)
+   if source==req['base_import_id'] and abs(a-start)<.1 and abs((b or meta['duration'])-end)<.1:
+    score=OUT/row['id']/('source-score/score.abc' if original else 'score.abc')
+    if score.is_file():return {'abc':read_abc(score),'source':'melodia della canzone originale'}
+  raise ValueError('Trascrivi prima lo stesso tratto della canzone originale per ricavare la metrica, poi riapri questo pulsante.')
+ if not req['abc']:raise ValueError('Importa o trascrivi prima uno spartito ABC per adattare il testo alla sua melodia.')
+ return {'abc':req['abc'],'source':'spartito della bozza'}
 
 def export_audio(data):
  job=get_job(data.get('id')); ident=job['id']; d=OUT/ident
@@ -635,6 +679,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
    self.check_host(); parsed=urllib.parse.urlparse(self.path); path=urllib.parse.unquote(parsed.path)
    if path=='/api/health': return self.json_response({'app':'H3-Music','status':'ok','pid':os.getpid()})
    if path=='/api/models/location':return self.json_response(model_location_status())
+   if path=='/api/loras':return self.json_response({'adapters':loras.status(ROOT),'operation':dict(LORA_OPERATION)})
    if path=='/api/state':
     projects=db('SELECT * FROM projects WHERE archived=0 ORDER BY updated DESC')
     for p in projects: p['request']=json.loads(p['request'])
@@ -648,7 +693,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
      cuda=json.loads(run_capture([str(platform_runtime.python(ROOT)),str(ROOT/'scripts/gpu_info.py')],15).stdout or '{}') if platform_runtime.windows() else {}
     except Exception: cuda={}
     motore={'cuda':'CUDA','metal':'Metal','cpu':'CPU'}[settings()['backend']]
-    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.7.4','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
+    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.8.0','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
    if path=='/api/voice-audio':
     ref=voice_sample(urllib.parse.parse_qs(parsed.query).get('name',[''])[0])
     if ref is None:raise ValueError('Campione vocale non trovato.')
@@ -715,9 +760,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
     s['llm_url']=local_llm_url(s['llm_url']); s['llm_model']=str(s['llm_model'])[:200]; s['paused']=bool(s['paused'])
     save_settings(s); WAKE.set(); result={'ok':True}
    elif path=='/api/assist': result=assist(data)
+   elif path=='/api/lyrics/context':result=lyric_context(data)
+   elif path=='/api/lyrics/adapt':result=lyric_meter.adapt(APP,data)
+   elif path=='/api/loras/install':result=install_loras()
    elif path=='/api/export': result=export_audio(data)
    elif path=='/api/bundle': result=bundle(data)
    elif path=='/api/shutdown':
+    if LORA_OPERATION['status'] in ('starting','downloading','converting'):raise ValueError('Attendi la fine dell’installazione dei LoRA prima di chiudere.')
     if MODEL_OPERATION['status'] in ('starting','copying','verifying','cleaning'):raise ValueError('Attendi la fine del trasferimento dei modelli prima di chiudere.')
     threading.Thread(target=self.server.shutdown,daemon=True).start(); result={'ok':True}
    elif path=='/api/open-folder':

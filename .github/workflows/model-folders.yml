@@ -20,3 +20,8 @@ jobs:
         run: python tests/model_folder_checks.py
       - name: Verify singing on the original accompaniment
         run: python tests/test_resinging.py
+      - name: Verify notation, optional adapters and lyric adaptation
+        run: |
+          python tests/test_transcription_notation.py
+          python tests/test_loras.py
+          python tests/test_lyric_meter.py

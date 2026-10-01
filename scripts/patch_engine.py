@@ -32,4 +32,31 @@ edit('src/models/yue2/pipeline.cpp','        auto latents = synthesize_latents(s
             file.write(reinterpret_cast<const char *>(latents.data()), latents.size() * sizeof(float));
             if (!file) throw std::runtime_error("H3-Music latent write failed");
         }''')
-print('Local artifact/plan extension applied')
+patches=Path(__file__).resolve().parent/'engine-lora'
+for src,dest in [('lora_tensor_source.h','include/engine/framework/assets/lora_tensor_source.h'),('lora_tensor_source.cpp','src/framework/assets/lora_tensor_source.cpp'),('lora.cpp','src/models/yue2/lora.cpp')]:
+ (r/dest).write_bytes((patches/src).read_bytes())
+edit('CMakeLists.txt','    src/framework/assets/tensor_source.cpp','    src/framework/assets/tensor_source.cpp\n    src/framework/assets/lora_tensor_source.cpp')
+edit('CMakeLists.txt','        src/models/yue2/assets.cpp','        src/models/yue2/assets.cpp\n        src/models/yue2/lora.cpp')
+edit('include/engine/models/yue2/assets.h','std::shared_ptr<const Yue2Assets> load_yue2_assets', '''std::shared_ptr<const assets::TensorSource> make_yue2_lora_source(
+    std::shared_ptr<const assets::TensorSource> base,
+    const std::filesystem::path & adapter_path, float scale, int64_t layer_count,
+    const std::filesystem::path & nar_adapter_path, float nar_scale);
+
+std::shared_ptr<const Yue2Assets> load_yue2_assets''')
+edit('src/models/yue2/session.cpp','    validate_component_anchors(*selected);', '''    validate_component_anchors(*selected);
+    auto ar_adapter = std::filesystem::u8path(runtime::find_option(options, {"yue2.ar_lora"}).value_or(""));
+    auto nar_adapter = std::filesystem::u8path(runtime::find_option(options, {"yue2.nar_lora"}).value_or(""));
+    if (!ar_adapter.empty() || !nar_adapter.empty()) {
+        if (!ar_adapter.empty() && ar_adapter.is_relative()) ar_adapter = base->model_root / ar_adapter;
+        if (!nar_adapter.empty() && nar_adapter.is_relative()) nar_adapter = base->model_root / nar_adapter;
+        selected->model_weights = make_yue2_lora_source(selected->model_weights, ar_adapter,
+            runtime::parse_finite_float_option(options, {"yue2.ar_lora_scale"}).value_or(1.0F),
+            selected->config.model.layers, nar_adapter,
+            runtime::parse_finite_float_option(options, {"yue2.nar_lora_scale"}).value_or(1.0F));
+    }''')
+edit('src/models/yue2/session.cpp','    out.session_options = {', '''    out.session_options = {
+        {"yue2.ar_lora", "path", "Optional unfused AR LoRA safetensors.", false},
+        {"yue2.nar_lora", "path", "Optional unfused NAR LoRA safetensors.", false},
+        {"yue2.ar_lora_scale", "float", "AR LoRA strength.", false, "1"},
+        {"yue2.nar_lora_scale", "float", "NAR LoRA strength.", false, "1"},''')
+print('Local artifact/plan extension and optional AR/NAR LoRA support applied')

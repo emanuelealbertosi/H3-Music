@@ -44,7 +44,7 @@ def main():
             'source': '13c4192a28d6a212f075c4cbefc5e4983e6ed52a',
             'h3_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
             'architecture': architecture, 'backends': ['cpu', 'metal'],
-            'min_macos': '15', 'h3_artifacts': True}, indent=2))
+            'min_macos': '15', 'h3_artifacts': True, 'h3_ar_nar_lora': True}, indent=2))
     with (output / name).open('rb') as stream:
         digest = hashlib.file_digest(stream, 'sha256').hexdigest()
     (output / (name + '.sha256')).write_text(digest + '  ' + name + '\n')

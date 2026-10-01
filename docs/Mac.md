@@ -1,6 +1,6 @@
 # H3-Music per Mac · anteprima
 
-Scarica il pacchetto adatto da [GitHub Releases](https://github.com/emanuelealbertosi/H3-Music/releases/tag/v1.7.4-macos-preview.1):
+Scarica il pacchetto adatto da [GitHub Releases](https://github.com/emanuelealbertosi/H3-Music/releases/tag/v1.8.0-macos-preview.1):
 
 - **H3-Music-Mac-arm64.zip** per Apple Silicon (M1, M2, M3 e successivi).
 - **H3-Music-Mac-x86_64.zip** per Mac Intel.

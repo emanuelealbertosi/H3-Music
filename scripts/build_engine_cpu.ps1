@@ -31,6 +31,8 @@ $envText = cmd /c "`"$vcvars`" x64 && set"
 foreach ($line in $envText) { if ($line -match '^([^=]+)=(.*)$') { Set-Item "env:$($matches[1])" $matches[2] } }
 
 # --- configurazione ---
+& "$root\runtime\python\python.exe" "$root\scripts\patch_engine.py"
+if ($LASTEXITCODE -ne 0) { throw 'Patch H3-Music fallita.' }
 Write-Host 'Configurazione CMake (Visual Studio 17 2022, x64, CPU)...'
 cmake -S "$root\vendor\audio.cpp" -B $BuildDir -G 'Visual Studio 17 2022' -A x64 `
   '-DCMAKE_C_FLAGS=/DWIN32 /D_WINDOWS /utf-8' `
