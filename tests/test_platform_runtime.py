@@ -48,7 +48,8 @@ class PlatformRuntimeTests(unittest.TestCase):
         with patch.dict(install_macos.os.environ, {'H3_MUSIC_BREW_UPDATED': ''}), patch.object(install_macos, 'run') as run:
             install_macos.prepare_homebrew()
         self.assertEqual(run.call_args_list[0].args, ('brew', 'update'))
-        self.assertEqual(run.call_args_list[1].args, ('brew', 'install', '--skip-link', 'python@3.12', 'python@3.11', 'ffmpeg'))
+        self.assertEqual(run.call_args_list[1].args, ('brew', 'install', '--skip-link', 'openssl@3'))
+        self.assertEqual(run.call_args_list[2].args, ('brew', 'install', '--skip-link', 'python@3.12', 'python@3.11', 'ffmpeg'))
 
     def test_homebrew_update_failure_prevents_install(self):
         import subprocess
@@ -60,8 +61,16 @@ class PlatformRuntimeTests(unittest.TestCase):
     def test_homebrew_is_not_updated_twice_by_command_launcher(self):
         with patch.dict(install_macos.os.environ, {'H3_MUSIC_BREW_UPDATED': '1'}), patch.object(install_macos, 'run') as run:
             install_macos.prepare_homebrew()
-        self.assertEqual(run.call_count, 1)
+        self.assertEqual(run.call_count, 2)
         self.assertEqual(run.call_args.args[1], 'install')
+
+    def test_openssl_failure_prevents_python_installation(self):
+        import subprocess
+        with patch.dict(install_macos.os.environ, {'H3_MUSIC_BREW_UPDATED': '1'}), patch.object(install_macos, 'run', side_effect=subprocess.CalledProcessError(1, ['brew', 'install', 'openssl@3'])) as run:
+            with self.assertRaises(subprocess.CalledProcessError):
+                install_macos.prepare_homebrew()
+        self.assertEqual(run.call_args.args, ('brew', 'install', '--skip-link', 'openssl@3'))
+        self.assertEqual(run.call_count, 1)
 
 
 if __name__ == '__main__':

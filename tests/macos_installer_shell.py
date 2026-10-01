@@ -43,7 +43,7 @@ brew() {
     def test_update_precedes_install_and_success_means_runtime_finished(self):
         result, commands = self.run_installer()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(commands, ['update', 'install', '--prefix', 'runtime'])
+        self.assertEqual(commands, ['update', 'install', 'install', '--prefix', 'runtime'])
         self.assertIn('Installazione completata', result.stdout + result.stderr)
 
     def test_failed_update_does_not_start_install_or_report_success(self):

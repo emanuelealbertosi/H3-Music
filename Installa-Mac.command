@@ -28,6 +28,7 @@ export HOMEBREW_NO_AUTO_UPDATE=1
 echo "Aggiornamento di Homebrew per riconoscere la versione di macOS…"
 brew update
 export H3_MUSIC_BREW_UPDATED=1
+brew install --skip-link openssl@3
 brew install --skip-link python@3.12
 "$(brew --prefix python@3.12)/bin/python3.12" scripts/install_macos.py "$@"
 echo "Installazione completata. Apri Avvia-Mac.command per usare H3-Music."

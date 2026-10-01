@@ -57,6 +57,9 @@ def prepare_homebrew():
         run('brew', 'update')
     # Use each formula's own prefix. Do not overwrite a Python already
     # installed by the user (or the Python.org tools on CI Intel runners).
+    # Install OpenSSL explicitly first: --skip-link is not inherited by
+    # dependency upgrades and openssl@1.1 may own the global openssl link.
+    run('brew', 'install', '--skip-link', 'openssl@3')
     run('brew', 'install', '--skip-link', 'python@3.12', 'python@3.11', 'ffmpeg')
 
 
