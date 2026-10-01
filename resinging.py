@@ -75,6 +75,8 @@ def matched_notes(original, generated, verification=False):
     if min(n, m) < 6:
         raise ValueError('Non sono state riconosciute abbastanza note cantate per allineare la voce.')
     guess = 0. if verification else generated[0][0] - original[0][0]
+    # An added vocal intro is not a reliable estimate of the song's delay.
+    if abs(guess)>2.5 and m>n: guess=0.
     previous = list(map(float, range(m + 1)))
     directions = bytearray(n * m)
     for i in range(1, n + 1):
@@ -148,7 +150,10 @@ def alignment(original, generated, allow_phrases=True, verification=False):
         anchors.extend([{'source':a+shift,'target':a}, {'source':b+shift,'target':b}])
     corrected = timing_stats(errors)
     rates = [(b['source']-a['source'])/(b['target']-a['target']) for a,b in zip(anchors,anchors[1:])]
-    if max(map(abs,shifts)) > 2.5 or max(shifts)-min(shifts) > 1.5 or corrected['p90_onset_error_seconds'] > .2 or corrected['max_onset_error_seconds'] > .65 or any(not .85 <= rate <= 1.18 for rate in rates):
+    # Offset changes are safe only when the available gaps can absorb them.
+    # A fixed spread limit rejects long pauses even with a small tempo change;
+    # the per-gap rate and the final audio verification are the actual limits.
+    if max(map(abs,shifts)) > 2.5 or corrected['p90_onset_error_seconds'] > .2 or corrected['max_onset_error_seconds'] > .65 or any(not .85 <= rate <= 1.18 for rate in rates):
         if constant_ok: return report
         raise ValueError(message)
     return report | {'method':'SheetSage2 phrase alignment; pitch-preserving gap adjustment',
@@ -269,9 +274,23 @@ def process(app, job, d):
         filters += '[v][b1][b2][b3]amix=inputs=4:duration=first:normalize=0'
         ff(inputs+['-filter_complex',filters,'-ar','48000','-ac','2','-c:a','pcm_f32le',verification], 'Verifica del canto sulla base originale',83)
         checked = transcribe(verification,d/'aligned-score',duration,'Ricontrollo del ritmo corretto',84)
-        verified = alignment(original_notes,checked,allow_phrases=False,verification=True)
-        if abs(verified['vocal_delay_seconds']) > .12:
-            raise ValueError('Il canto riallineato conserva un ritardo troppo grande: il mix è stato fermato.')
+        def verify(notes):
+            timing = alignment(original_notes,notes,allow_phrases=False,verification=True)
+            if abs(timing['vocal_delay_seconds']) > .12:
+                raise ValueError('Il canto riallineato conserva un ritardo troppo grande: il mix è stato fermato.')
+            return timing
+        try:
+            verified = verify(checked)
+            report['verification_source'] = 'original-backing-mix'
+        except ValueError as mixed_error:
+            # In a dense mix SheetSage2 sometimes tags an entire sung refrain as
+            # instrumental. Recheck the actual replacement voice alone, with
+            # the same pitch, phrase coverage and timing requirements. Never
+            # rescue a missing voice by matching the unchanged accompaniment.
+            isolated = transcribe(aligned,d/'aligned-vocal-score',duration,'Ricontrollo della voce isolata',85)
+            verified = verify(isolated)
+            report['verification_source'] = 'isolated-replacement-vocals'
+            report['mixed_verification_error'] = str(mixed_error)
         report['verified_timing'] = verified
         app.write_json(d/'alignment.json',report)
     fresh_voice = aligned

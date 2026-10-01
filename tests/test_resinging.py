@@ -92,6 +92,17 @@ class ResingingTests(unittest.TestCase):
   a,b=self.phrase_notes((.44,.74,.51))
   b=[(x,y,p+12) for x,y,p in b]
   with self.assertRaisesRegex(ValueError,'melodia'):resinging.alignment(a,b)
+ def test_long_pauses_can_absorb_offset_changes_without_stretching_phrases(self):
+  original=[];generated=[]
+  for phrase,shift in enumerate((.08,1.91,1.6)):
+   for i in range(8):
+    a=10+phrase*30+i*.4;p=60+i%5
+    original.append((a,a+.3,p));generated.append((a+shift,a+.3+shift,p))
+  report=resinging.alignment(original,generated)
+  self.assertEqual(report['phrases'],3)
+  self.assertGreater(max(g[0]-o[0] for o,g in zip(original,generated))-min(g[0]-o[0] for o,g in zip(original,generated)),1.5)
+  self.assertTrue(.85<=report['min_gap_tempo']<=report['max_gap_tempo']<=1.18)
+  self.assertLess(report['predicted_corrected_timing']['max_onset_error_seconds'],1e-8)
  def test_repeated_notes_cannot_jump_to_another_refrain(self):
   original=[];generated=[]
   for start in (10,40,70):
@@ -102,6 +113,17 @@ class ResingingTests(unittest.TestCase):
   self.assertLess(report['p90_onset_error_seconds'],.01)
   pairs=resinging.matched_notes(original,generated,verification=True)
   self.assertTrue(all(abs(o[0]-g[0])<.01 for o,g in pairs))
+ def test_good_total_coverage_cannot_hide_a_missing_refrain(self):
+  original,generated=self.phrase_notes((0,0,0,0))
+  generated=generated[:8]+generated[16:]
+  with self.assertRaisesRegex(ValueError,'frase'):
+   resinging.alignment(original,generated,allow_phrases=False,verification=True)
+ def test_added_vocal_intro_does_not_become_the_global_delay(self):
+  original=[(10+i*.4,10+i*.4+.3,60+i%5) for i in range(30)]
+  intro=[(2+i*.4,2+i*.4+.3,60+i%5) for i in range(6)]
+  generated=intro+[(a+.1,b+.1,p) for a,b,p in original]
+  report=resinging.alignment(original,generated)
+  self.assertEqual(report['matching_notes'],30);self.assertAlmostEqual(report['vocal_delay_seconds'],.1)
  @unittest.skipUnless(app.FFMPEG.is_file(),'Bundled FFmpeg is not installed on this runner')
  def test_real_phrase_render_preserves_pitch_onsets_and_sample_duration(self):
   original,generated=self.phrase_notes((-.44,-.74,-.51))
@@ -130,7 +152,7 @@ class ResingingTests(unittest.TestCase):
   for contents in ('0 1 nan','2 1 60','0 1 60.5','1 2 60\n0 1 61'):
    path.write_text(contents)
    with self.assertRaises(ValueError):resinging.read_notes(path)
- def exercise_pipeline(self, clone=False, cancelled=False, drift=False, truncated=False, backend='cpu', automatic=True, phrases=False, bad_check=False):
+ def exercise_pipeline(self, clone=False, cancelled=False, drift=False, truncated=False, backend='cpu', automatic=True, phrases=False, bad_check=False, mislabeled_mix=False):
   req=app.validate(self.req | {'clone_enabled': clone, 'clone_voice': 'sample' if clone else '', 'voice_steps': 50, 'mix': {'automatic': automatic}})
   project=app.project_save({'request':req})
   with self.preflight(),patch.object(app,'ready',return_value={'ready':True}),patch.object(resinging.cloning,'preflight'):
@@ -144,7 +166,8 @@ class ResingingTests(unittest.TestCase):
     output=pathlib.Path(args[args.index('--output')+1]);(output/'melody_vocal.lab').write_text(note_text if not drift or output.name=='source-score' else '\n'.join(f'{i*.5} {i*.5+.3} {60+i%5}' for i in range(20)))
     if phrases:
      original,generated=self.phrase_notes((.44,.74,.51))
-     notes=generated if output.name=='generated-score' or bad_check and output.name=='aligned-score' else original
+     notes=generated if output.name=='generated-score' or bad_check and output.name in ('aligned-score','aligned-vocal-score') else original
+     if mislabeled_mix and output.name=='aligned-score':notes=[(a,b,p+12) for a,b,p in original]
      (output/'melody_vocal.lab').write_text('\n'.join(f'{a} {b} {p}' for a,b,p in notes))
     (output/'score.abc').write_text('X:1\nM:4/4\nL:1/8\nQ:1/4=120\nK:C\nCDEF|')
    elif '--task' in args:
@@ -183,6 +206,10 @@ class ResingingTests(unittest.TestCase):
     else:measured.assert_not_called();self.assertNotIn('excerpt_voice_gain_db',result['alignment'])
     if phrases:
      self.assertIn('verified_timing',result['alignment'])
+     self.assertEqual(result['alignment']['verification_source'],'isolated-replacement-vocals' if mislabeled_mix else 'original-backing-mix')
+     if mislabeled_mix:
+      isolated=next(a for a in calls if '--output' in a and pathlib.Path(a[a.index('--output')+1]).name=='aligned-vocal-score')
+      self.assertEqual(isolated[isolated.index('--input')+1],str(d/'new-singing.wav'))
      verification=next(a for a in calls if str(d/'alignment-check.wav')==a[-1])
      self.assertIn('start=20.00000000:end=45.00000000',verification[verification.index('-filter_complex')+1])
   self.assertEqual((app.DATA/'imports'/self.source/'source.wav').read_bytes(),b'original untouched')
@@ -194,6 +221,7 @@ class ResingingTests(unittest.TestCase):
  def test_truncation_never_publishes_mix(self):self.exercise_pipeline(truncated=True)
  def test_phrase_pipeline_verifies_corrected_audio_on_selected_original_base(self):self.exercise_pipeline(phrases=True)
  def test_phrase_pipeline_rejects_failed_audio_verification_before_cloning(self):self.exercise_pipeline(phrases=True,bad_check=True,clone=True)
+ def test_mislabeled_mix_is_rechecked_against_replacement_voice_only(self):self.exercise_pipeline(phrases=True,mislabeled_mix=True)
 
 
 if __name__=='__main__':unittest.main(verbosity=2)
