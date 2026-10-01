@@ -1,6 +1,6 @@
 # H3-Music
 
-**Mac:** disponibile una [anteprima scaricabile da GitHub](https://github.com/emanuelealbertosi/H3-Music/releases/tag/v1.6.0-macos-preview.2) per Apple Silicon e Intel. Richiede macOS 15+ e Homebrew; CPU predefinita, Metal facoltativo. [Installazione e limiti della versione Mac](docs/Mac.md).
+**Mac:** disponibile una [anteprima scaricabile da GitHub](https://github.com/emanuelealbertosi/H3-Music/releases/tag/v1.6.1-macos-preview.1) per Apple Silicon e Intel. Richiede macOS 15+ e Homebrew; CPU predefinita, Metal facoltativo. [Installazione e limiti della versione Mac](docs/Mac.md).
 
 Studio musicale locale per Windows, basato su **YuE2-3B (Q4, Q8 e BF16)** e **audio.cpp**. Interfaccia in italiano, con gli stessi colori avorio e verde petrolio e i font Manrope/Cormorant delle altre app H3. In questa installazione il motore usa la **GPU CUDA**; il motore precompilato distribuito nel repository per il clone su altri PC usa la **CPU**.
 
@@ -9,6 +9,10 @@ Studio musicale locale per Windows, basato su **YuE2-3B (Q4, Q8 e BF16)** e **au
 Questo repository contiene il codice dell’app, l’interfaccia, il launcher Windows, gli script, i test e la documentazione, oltre al motore audio.cpp precompilato per CPU (`dist/h3-engine-cpu-win64.zip`) e il manifest dei pesi YuE2. I modelli pesanti, i runtime, le registrazioni, il database, le cache, i log e i backup restano esclusi da Git: un clone non è ancora un’installazione pronta all’uso, ma `install.bat` la completa scaricando i componenti mancanti (vedi sotto). Gli script di packaging e alcuni collaudi di integrazione si riferiscono all’installazione su `F:\H3-Music` descritta in questa documentazione.
 
 ## Installazione da GitHub (clone)
+
+**Cartella dei modelli 1.6.1:** in **Sistema → Cartella dei modelli** scegli una cartella dedicata, anche su un altro disco. **Trasferisci i modelli attuali** copia tutti i modelli (musica, trascrizione, separazione e cambio voce), controlla i file e poi rimuove gli originali, senza riscaricarli. Scegli una cartella vuota e termina o annulla i lavori in coda; il trasferimento richiede spazio per una copia completa nella destinazione. Se li hai già spostati manualmente, scegli **Usa i modelli già presenti** e indica la cartella che contiene `yue2`, `tools`, `SheetSage2` e `MERT-v2-FullSong`. I nuovi download usano la posizione scelta. Brani, campioni vocali, runtime e preferenze CPU/GPU restano nell’app. La scelta è salvata solo su questo PC in `data/model-location.json`, esclusa da Git.
+
+Puoi scegliere la posizione anche durante la prima installazione: su Windows `install.bat -Models q4 -ModelDirectory "F:\Modelli\H3-Music"`; su Mac esegui `bash Installa-Mac.command --models-dir "/Volumes/NomeDisco/Modelli/H3-Music"`. Questi comandi trasferiscono eventuali modelli già installati prima dei download. Su Mac viene verificato separatamente lo spazio per i modelli e per Python quando si trovano su dischi diversi. Il disco dei modelli deve restare disponibile mentre usi l’app.
 
 **Pulizia Libreria 1.5.6:** ogni risultato ha un cestino. Per eliminare più sessioni, spunta i brani oppure usa **Seleziona tutti i risultati visibili**, poi **Elimina selezionati**. La conferma elenca tutti i titoli scelti, anche quelli selezionati prima di cambiare filtro. L’eliminazione è definitiva e rimuove i file delle sessioni per liberare spazio; conserva progetti, audio importati e campioni vocali. I risultati necessari a lavori in corso o a cambi voce che condividono le tracce vengono protetti.
 

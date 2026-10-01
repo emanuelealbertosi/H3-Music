@@ -4,7 +4,7 @@
 # FFmpeg, i modelli YuE2 e il runtime di trascrizione (torch CPU), estrae il
 # motore audio.cpp precompilato da dist/, imposta backend=cpu e avvia il server.
 
-param([switch]$DryRun, [switch]$EnableGpu, [switch]$SkipGpuBuild, [switch]$LatestModels, [string]$Models = 'both')
+param([switch]$DryRun, [switch]$EnableGpu, [switch]$SkipGpuBuild, [switch]$LatestModels, [string]$Models = 'both', [string]$ModelDirectory = '')
 
 $ErrorActionPreference = 'Stop'
 # TLS 1.2 sempre; TLS 1.3 solo se il .NET Framework installato lo conosce.
@@ -138,7 +138,7 @@ try {
   }
 } catch { Write-Host '  Memoria fisica: non rilevata' }
 if ($DryRun) { Write-Host ('DRY RUN - fresh_backend=cpu; gpu_requested=' + [bool]($EnableGpu -and -not $SkipGpuBuild)); exit 0 }
-if ($drive.TotalFreeSpace -lt 20GB) { throw "Spazio insufficiente: servono almeno 20 GB liberi (disponibili $freeGB GB)." }
+if ($drive.TotalFreeSpace -lt 1GB) { throw "Spazio insufficiente per preparare Python e FFmpeg: serve almeno 1 GB libero nella cartella dell'app (disponibili $freeGB GB)." }
 
 # ---------- 2. Python incorporato ----------
 Write-Step 2 'Python incorporato 3.12.10'
@@ -183,12 +183,14 @@ if ($code -ne 0) { throw "Motore non avviabile (exit code $code)" }
 
 # ---------- 5. Modelli YuE2 ----------
 Write-Step 5 'Modelli YuE2 (download da Hugging Face)'
+if ($ModelDirectory) { Run-Python "$root\scripts\configure_models.py" @('--path', $ModelDirectory) }
 $modelArgs = @()
 if ($LatestModels) {
   Write-Host '  modalita -LatestModels: prendo l ultima revisione del repository' -ForegroundColor DarkYellow
   $modelArgs += '--latest'
 }
 if ($Models -notin @('both', 'all', 'q8', 'q4', 'bf16')) { throw "Valore non valido per -Models: $Models (usa both, all, q8, q4 o bf16)." }
+Run-Python "$root\scripts\check_model_space.py" @('--quant', $Models)
 if ($Models -eq 'both') {
   Write-Host '  scarico entrambi i modelli: Q8 (4,0 GB, qualita massima) e Q4 (2,5 GB, piu veloce su CPU).' -ForegroundColor DarkYellow
   Write-Host '  Si sceglie poi dall app, in Preferenze: non serve riscaricare nulla.' -ForegroundColor DarkYellow

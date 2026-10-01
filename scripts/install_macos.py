@@ -16,9 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import platform_runtime
 import execution
+import model_store
 from scripts import macos_space
 
-RELEASE = 'v1.6.0-macos-preview.2'
+RELEASE = 'v1.6.1-macos-preview.1'
 DOWNLOAD = 'https://github.com/emanuelealbertosi/H3-Music/releases/download/' + RELEASE
 
 
@@ -105,12 +106,17 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--no-models', action='store_true', help='Prepare runtimes only (CI).')
     parser.add_argument('--quant', choices=('q4', 'q8', 'bf16'), default='q4')
+    parser.add_argument('--models-dir', help='Cartella dedicata ai modelli; trasferisce quelli già installati.')
     args = parser.parse_args()
     if not platform_runtime.macos():
         parser.error('Questo installatore è riservato a macOS.')
     if int(platform.mac_ver()[0].split('.')[0]) < 15:
         parser.error('Questa anteprima richiede macOS 15 o successivo.')
     check_idle()
+    if args.models_dir:
+        with model_store.exclusive(ROOT):
+            model_store.check_idle(ROOT)
+            model_store.relocate(ROOT, args.models_dir)
     if not shutil.which('brew'):
         raise RuntimeError('Installa prima Homebrew da https://brew.sh, poi riapri Installa-Mac.command.')
     if not args.no_models:

@@ -13,6 +13,10 @@ server solo la parte mancante (Range).
 """
 import argparse, json, pathlib, urllib.request, urllib.error, hashlib, concurrent.futures, time
 
+import sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+import model_store
+
 PINNED = 'f7cb0712b9c2e5e9dcadc8b3ab23a591756c131b'
 REPO = 'audio-cpp/Yue2-3B-GGUF'
 # Varianti del modello principale nella revisione fissata: dimensioni e SHA-256
@@ -74,7 +78,7 @@ def drop(temp):
 
 
 def download(root, f, revision, known):
-    target = root/'models/yue2'/f['path']
+    target = model_store.location(root)/'yue2'/f['path']
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():                                   # gia' presente e inutile riscaricarlo
         if target.stat().st_size == f['size'] and known.get('size') == f['size'] and known.get('sha256'):
@@ -135,7 +139,7 @@ def download(root, f, revision, known):
             time.sleep(2)
 
 
-def main():
+def _main():
     parser = argparse.ArgumentParser(description='Scarica i pesi YuE2.')
     parser.add_argument('--latest', action='store_true', help="usa l'ultima revisione del repository invece di quella fissata")
     parser.add_argument('--quant', choices=['both', 'all', 'q8', 'q4', 'bf16'], default='both',
@@ -152,7 +156,7 @@ def main():
                 wanted.append(dict(MODELS[key]))
         else:
             wanted.append(dict(f))
-    record_path = root/'models/installed-models.json'
+    record_path = model_store.location(root)/'installed-models.json'
     known = {}
     if record_path.exists():
         try:
@@ -186,7 +190,14 @@ def main():
               'files': dict(known)}
     record['files'].update({f['path']: {'size': f['size'], 'sha256': d} for f, d in zip(files, digests)})
     record_path.write_text(json.dumps(record, indent=1), encoding='utf-8')
-    print('Modelli pronti (registrati in models/installed-models.json)', flush=True)
+    print('Modelli pronti (registrati in %s)' % record_path, flush=True)
+
+
+def main():
+    root = pathlib.Path(__file__).resolve().parents[1]
+    with model_store.exclusive(root):
+        model_store.check_idle(root)
+        _main()
 
 
 if __name__ == '__main__':

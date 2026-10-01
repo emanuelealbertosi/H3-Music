@@ -1,7 +1,7 @@
 """Local audio imports and SheetSage2 queue integration (stdlib only)."""
 import hashlib,json,math,re,shutil,time,urllib.parse,uuid
 from pathlib import Path
-import execution, platform_runtime
+import execution, platform_runtime, model_store
 MAX_UPLOAD=256*1024*1024
 EXTENSIONS={'.mp3','.wav','.flac','.m4a','.ogg','.opus','.aac','.aif','.aiff','.wma','.mp4'}
 
@@ -15,14 +15,15 @@ def status(root,backend="cpu"):
   files={n:size for n,size in files.items() if '/Lib/site-packages/' not in n and not n.endswith('/python.exe') and n!='runtime/ffmpeg.exe'}
   files[execution.transcription_python(root,backend).relative_to(root).as_posix()]=None
   files[platform_runtime.binary(root,'ffmpeg').relative_to(root).as_posix()]=None
- missing=[n for n,size in files.items() if not (root/n).is_file() or size and (root/n).stat().st_size!=size]
+ def file_path(n):return model_store.location(root)/n.removeprefix('models/') if n.startswith('models/') else root/n
+ missing=[n for n,size in files.items() if not file_path(n).is_file() or size and file_path(n).stat().st_size!=size]
  revision=installed_revision(root)
  try:expected=json.loads((root/'scripts/sheetsage2-revision.json').read_text(encoding='utf-8'))['revision']
  except (OSError,ValueError,KeyError):expected=None
  return {'ready':not missing,'model':'SheetSage2 + MERT-v2','missing':missing,'max_upload_mb':256,'max_duration_seconds':1800,'runtime_path':str(runtime.resolve()),'revision':revision,'update_available':bool(expected and revision!=expected)}
 
 def installed_revision(root):
- try:return json.loads((root/'models/transcription-manifest.json').read_text(encoding='utf-8')).get('sheet_revision')
+ try:return json.loads((model_store.location(root)/'transcription-manifest.json').read_text(encoding='utf-8')).get('sheet_revision')
  except (OSError,ValueError):return None
 
 def source(data,ident):

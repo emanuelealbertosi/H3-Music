@@ -5,7 +5,7 @@ from pathlib import Path
 from contextlib import contextmanager
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT))
-import transcription, execution, cloning, mixing, remote_access, library_cleanup, platform_runtime
+import transcription, execution, cloning, mixing, remote_access, library_cleanup, platform_runtime, model_store
 APP=sys.modules[__name__]
 DATA=Path(os.environ.get('H3_MUSIC_DATA',str(ROOT/'data')))
 OUT=DATA/'outputs'
@@ -14,7 +14,8 @@ HIDDEN=0x08000000 if os.name=='nt' else 0
 LOCK=threading.RLock()
 ACTIVE={}
 WAKE=threading.Event()
-MODEL=ROOT/'models/yue2'
+MODEL=model_store.location(ROOT)/'yue2'
+MODEL_OPERATION={'status':'idle'}
 ENGINE=platform_runtime.binary(ROOT,'audiocpp_cli',engine=True)
 FFMPEG=platform_runtime.binary(ROOT,'ffmpeg')
 DEFAULTS={'backend':'cpu','threads':8,'llm_url':'http://127.0.0.1:1234/v1','llm_model':'','paused':False,'model':'q8'}
@@ -165,7 +166,7 @@ def memory_profile():
 
 def ready():
  required={'yue2-3b-q8_0.gguf':4264186432,'yue2-vae-f16.gguf':265218656,'sidecars/yue2-qwen.tiktoken':2561218,'sidecars/yue2-model-config.json':959,'sidecars/yue2-generation-config.json':466,'sidecars/yue2-vae-config.json':1378}
- record=ROOT/'models/installed-models.json'
+ record=model_store.location(ROOT)/'installed-models.json'
  if record.exists():
   try:
    installed=json.loads(record.read_text(encoding='utf-8')).get('files') or {}
@@ -181,7 +182,43 @@ def ready():
  available={k:(MODEL/v[0]).is_file() and (MODEL/v[0]).stat().st_size==installed_model_sizes().get(v[0],v[1]) for k,v in MUSIC_MODELS.items()}
  return {'ready':ENGINE.exists() and not missing,'engine':ENGINE.exists(),'missing':missing,'ffmpeg':FFMPEG.exists(),'sep':bool(separation_model()),'voice':bool(voice_model()),'voices':len(voice_list()),'model':'YuE2-3B · %s / VAE F16' % MUSIC_MODELS[variant][2],'model_variant':variant,'available_models':available,'root':str(ROOT),'transcription':transcription.status(ROOT,settings()['backend']),'platform':sys.platform,'backends':platform_runtime.backends(),'setup_name':platform_runtime.setup_name()}
 
-TOOLS=ROOT/'models/tools'
+TOOLS=model_store.location(ROOT)/'tools'
+
+def model_location_status():
+ with LOCK:
+  return {'path':str(model_store.location(ROOT)), 'operation':dict(MODEL_OPERATION)}
+
+def change_model_location(data):
+ global MODEL_OPERATION
+ transfer=data.get('transfer',True)
+ if not isinstance(transfer,bool):raise ValueError('Scelta del trasferimento non valida.')
+ with LOCK:
+  if MODEL_OPERATION['status'] in ('starting','copying','verifying','cleaning'):raise ValueError('Un trasferimento è già in corso.')
+  guard=model_store.exclusive(ROOT);guard.__enter__()
+  try:
+   if ACTIVE or db("SELECT id FROM jobs WHERE status IN ('queued','running','cancelling') LIMIT 1",one=True):raise ValueError('Termina o annulla i lavori in coda prima di cambiare cartella.')
+   target=model_store.validate_destination(ROOT,model_store.location(ROOT),data.get('path'),transfer)
+   MODEL_OPERATION={'status':'starting','done':0,'total':0,'target':str(target)}
+   def run():
+    global MODEL,TOOLS
+    def update(**values):
+     with LOCK:MODEL_OPERATION.update(values)
+    try:
+     result=model_store.relocate(ROOT,str(target),transfer,update)
+     terminal={'status':'completed',**result}
+    except Exception as e: terminal={'status':'failed','error':str(e)}
+    finally:
+     with LOCK:
+      try:
+       MODEL=model_store.location(ROOT)/'yue2';TOOLS=model_store.location(ROOT)/'tools'
+      finally:
+       guard.__exit__(None,None,None)
+       MODEL_OPERATION.update(terminal)
+     WAKE.set()
+   threading.Thread(target=run,daemon=True).start()
+  except BaseException:
+   guard.__exit__(None,None,None);raise
+ return {'ok':True}
 def normalize_audio(src,dst,rate=44100,channels=2):
  """Ricampiona un audio col formato atteso dai modelli ausiliari.
 
@@ -266,7 +303,7 @@ def mix_voice(job,d,converted,source=None,runner=None):
  return mixing.render(APP,job,d,converted,src,runner)
 
 def enqueue(data):
- with LOCK:return _enqueue(data)
+ with LOCK,model_store.exclusive(ROOT):return _enqueue(data)
 
 def _enqueue(data):
  if data.get('kind')=='remix':return mixing.enqueue(APP,data)
@@ -293,7 +330,7 @@ def _enqueue(data):
  WAKE.set(); return {'ids':ids}
 
 def installed_model_sizes():
- record=ROOT/'models/installed-models.json'
+ record=model_store.location(ROOT)/'installed-models.json'
  try:return {n:info['size'] for n,info in json.loads(record.read_text(encoding='utf-8')).get('files',{}).items() if isinstance(info,dict) and info.get('size')}
  except (OSError,ValueError,TypeError):return {}
 
@@ -458,10 +495,13 @@ def worker():
   WAKE.wait(1); WAKE.clear()
   if settings()['paused']: continue
   with LOCK:
-   row=db("SELECT id FROM jobs WHERE status='queued' ORDER BY created LIMIT 1",one=True)
-   if not row: continue
-   job=get_job(row['id']); ident=job['id']; d=OUT/ident; d.mkdir(exist_ok=True)
-   db("UPDATE jobs SET status='running',started=? WHERE id=?",(now(),ident))
+   try:
+    with model_store.exclusive(ROOT):
+     row=db("SELECT id FROM jobs WHERE status='queued' ORDER BY created LIMIT 1",one=True)
+     if not row: continue
+     job=get_job(row['id']); ident=job['id']; d=OUT/ident; d.mkdir(exist_ok=True)
+     db("UPDATE jobs SET status='running',started=? WHERE id=?",(now(),ident))
+   except ValueError:continue
   try:
    if job['kind']=='remix':result=mixing.process(APP,job,d)
    elif job['kind'] in ('clone','instrumental'):result=cloning.process(APP,job,d)
@@ -589,6 +629,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
   try:
    self.check_host(); parsed=urllib.parse.urlparse(self.path); path=urllib.parse.unquote(parsed.path)
    if path=='/api/health': return self.json_response({'app':'H3-Music','status':'ok','pid':os.getpid()})
+   if path=='/api/models/location':return self.json_response(model_location_status())
    if path=='/api/state':
     projects=db('SELECT * FROM projects WHERE archived=0 ORDER BY updated DESC')
     for p in projects: p['request']=json.loads(p['request'])
@@ -602,7 +643,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
      cuda=json.loads(run_capture([str(platform_runtime.python(ROOT)),str(ROOT/'scripts/gpu_info.py')],15).stdout or '{}') if platform_runtime.windows() else {}
     except Exception: cuda={}
     motore={'cuda':'CUDA','metal':'Metal','cpu':'CPU'}[settings()['backend']]
-    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.6.0-preview.2','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
+    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.6.1','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
    if path=='/api/voice-audio':
     ref=voice_sample(urllib.parse.parse_qs(parsed.query).get('name',[''])[0])
     if ref is None:raise ValueError('Campione vocale non trovato.')
@@ -636,6 +677,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
    if not 0<size<=2*1024*1024: raise ValueError('Richiesta troppo grande o vuota.')
    data=json.loads(self.rfile.read(size)); path=urllib.parse.urlparse(self.path).path
    if path=='/api/projects': result=project_save(data)
+   elif path=='/api/models/location':result=change_model_location(data)
+   elif path=='/api/models/browse':
+    if platform_runtime.windows():
+     script="Add-Type -AssemblyName System.Windows.Forms; $picker=New-Object System.Windows.Forms.FolderBrowserDialog; $picker.Description='Scegli la cartella dei modelli H3-Music'; if($picker.ShowDialog() -eq 'OK'){[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; [Console]::Write($picker.SelectedPath)}"
+     selected=run_capture(['powershell','-NoProfile','-STA','-Command',script],180).stdout.strip()
+    elif platform_runtime.macos():selected=run_capture(['osascript','-e','POSIX path of (choose folder with prompt "Scegli la cartella dei modelli H3-Music")'],180).stdout.strip()
+    else:raise ValueError('Inserisci il percorso completo della cartella.')
+    result={'path':selected}
    elif path=='/api/projects/archive':
     if db("SELECT id FROM jobs WHERE project_id=? AND status IN ('running','queued','cancelling')",(data['id'],),True): raise ValueError('Termina o annulla prima le generazioni del progetto.')
     db('UPDATE projects SET archived=1 WHERE id=?',(data['id'],)); result={'ok':True}
@@ -664,6 +713,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
    elif path=='/api/export': result=export_audio(data)
    elif path=='/api/bundle': result=bundle(data)
    elif path=='/api/shutdown':
+    if MODEL_OPERATION['status'] in ('starting','copying','verifying','cleaning'):raise ValueError('Attendi la fine del trasferimento dei modelli prima di chiudere.')
     threading.Thread(target=self.server.shutdown,daemon=True).start(); result={'ok':True}
    elif path=='/api/open-folder':
     target=OUT/data['id'] if data.get('id') and re.fullmatch('[a-f0-9]{32}',str(data['id'])) else ROOT

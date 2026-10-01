@@ -8,7 +8,7 @@ verified SHA-256 values expected by transcription.status().
 """
 import argparse, pathlib, urllib.request, zipfile, subprocess, os, json, hashlib, concurrent.futures, re, sys
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]))
-import execution
+import execution, model_store
 from scripts.transcription_models import update_files
 
 r = pathlib.Path(__file__).resolve().parents[1]
@@ -58,11 +58,11 @@ def get(url,p):
  with concurrent.futures.ThreadPoolExecutor(12) as pool:list(pool.map(part,range(0,size,chunk_size)))
 
 def models():
- parent=r/'models/MERT-v2-FullSong';parent.mkdir(exist_ok=True,parents=True)
+ parent=model_store.location(r)/'MERT-v2-FullSong';parent.mkdir(exist_ok=True,parents=True)
  tree=json.loads((r/'scripts/mert-tree.json').read_text(encoding='utf-8'))
  files=[f for f in tree if f['type']=='file' and f['path'] in ['config.json','configuration_mert2.py','modeling_mert2.py','model.safetensors','LICENSE']]
  update_files(r,parent,'m-a-p/MERT-v2-FullSong',MERT_REV,files,get)
- sheet=r/'models/SheetSage2';sheet.mkdir(exist_ok=True,parents=True)
+ sheet=model_store.location(r)/'SheetSage2';sheet.mkdir(exist_ok=True,parents=True)
  meta=json.loads((r/'scripts/sheetsage2-revision.json').read_text(encoding='utf-8'))
  assert meta['revision']==SHEET_REV
  update_files(r,sheet,'m-a-p/SheetSage2',SHEET_REV,meta['files'],get)
@@ -104,18 +104,18 @@ def runtime(backend):
  print('RUNTIME READY',flush=True)
 
 def manifest():
- def sha(rel):return hashlib.file_digest(open(r/rel,'rb'),'sha256').hexdigest()
+ def sha(rel):return model_store.digest(model_store.location(r)/str(rel).removeprefix('models/'))
  m={'sheet_revision':SHEET_REV,'mert_revision':MERT_REV,
     'sha256':{'models/SheetSage2/model.safetensors':sha('models/SheetSage2/model.safetensors'),
               'models/MERT-v2-FullSong/model.safetensors':sha('models/MERT-v2-FullSong/model.safetensors'),
               'models/MERT-v2-FullSong/modeling_mert2.py':sha('models/MERT-v2-FullSong/modeling_mert2.py'),
               'models/MERT-v2-FullSong/configuration_mert2.py':sha('models/MERT-v2-FullSong/configuration_mert2.py')}}
- for p in (r/'models/SheetSage2').glob('*.py'):m['sha256'][p.relative_to(r).as_posix()]=sha(p.relative_to(r))
- path=r/'models/transcription-manifest.json';staged=path.with_suffix('.tmp')
+ for p in (model_store.location(r)/'SheetSage2').glob('*.py'):m['sha256']['models/'+p.relative_to(model_store.location(r)).as_posix()]=sha('models/'+p.relative_to(model_store.location(r)).as_posix())
+ path=model_store.location(r)/'transcription-manifest.json';staged=path.with_suffix('.tmp')
  staged.write_text(json.dumps(m,indent=1),encoding='utf-8');staged.replace(path)
 
 def installed_revision():
- try:return json.loads((r/'models/transcription-manifest.json').read_text(encoding='utf-8')).get('sheet_revision')
+ try:return json.loads((model_store.location(r)/'transcription-manifest.json').read_text(encoding='utf-8')).get('sheet_revision')
  except (OSError,ValueError):return None
 
 def check_idle():
@@ -126,6 +126,10 @@ def check_idle():
   with sqlite3.connect(database) as connection:
    if connection.execute("SELECT 1 FROM jobs WHERE kind='transcribe' AND status IN ('queued','running','cancelling') LIMIT 1").fetchone():
     raise RuntimeError('Attendi la fine delle trascrizioni in coda prima di aggiornare.')
+
+def install_models():
+ with model_store.exclusive(r):
+  model_store.check_idle(r);models();manifest()
 
 def main():
  global py
@@ -139,7 +143,7 @@ def main():
  tmp.mkdir(exist_ok=True,parents=True)
  if a.models_only:
   if a.runtime_only:p.error('--models-only and --runtime-only cannot be combined')
-  check_idle();models();manifest();print('TRANSCRIPTION MODELS UPDATED',flush=True);return
+  install_models();print('TRANSCRIPTION MODELS UPDATED',flush=True);return
  base=r/'runtime/transcription'
  existing=execution.transcription_python(r,a.backend)
  reusable=False
@@ -160,7 +164,7 @@ def main():
   # Existing validated weights do not need a new network request on repair.
   import transcription
   if not transcription.status(r,a.backend)['ready'] or installed_revision()!=SHEET_REV:
-   check_idle();models();manifest()
+   install_models()
   else:print('EXISTING MODELS READY',flush=True)
  print('TRANSCRIPTION INSTALL COMPLETE',flush=True)
 

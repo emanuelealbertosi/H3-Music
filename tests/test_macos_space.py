@@ -25,6 +25,19 @@ class MacSpaceTests(unittest.TestCase):
             bf16 = macos_space.estimate(ROOT, 'bf16')
         self.assertEqual(bf16['models'] - q4['models'], 7261475392 - 2665632320)
 
+    def test_windows_both_adds_q8_without_duplicating_shared_models(self):
+        with patch.object(macos_space, 'matches', return_value=False):
+            q4 = macos_space.estimate(ROOT, 'q4')
+            both = macos_space.estimate(ROOT, 'both')
+        self.assertEqual(both['models'] - q4['models'], 4264186432)
+
+    def test_separate_disks_check_models_and_runtime_independently(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / 'tests', prefix='tmp-space-') as directory:
+            root = Path(directory); target = root / 'external'; target.mkdir()
+            with patch.object(macos_space.model_store, 'location', return_value=target), patch.object(macos_space, 'model_entries', return_value=[]), patch.object(macos_space, 'same_volume', return_value=False), patch.object(macos_space.shutil, 'disk_usage', side_effect=lambda p: SimpleNamespace(free=8_000_000_000 if Path(p) == target else 2_000_000_000)):
+                with self.assertRaisesRegex(RuntimeError, 'Python e le librerie'):
+                    macos_space.check(root, 'q4')
+
     def test_verified_existing_files_reduce_space_but_corrupt_files_do_not(self):
         with tempfile.TemporaryDirectory(dir=ROOT / 'tests', prefix='tmp-space-') as directory:
             root = Path(directory)

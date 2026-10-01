@@ -12,6 +12,10 @@ passare al motore con --model. I download interrotti riprendono da
 """
 import argparse, json, pathlib, urllib.request, urllib.error, hashlib, time
 
+import sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+import model_store
+
 BLOCK = 4 * 1024 * 1024
 REPORT = 256 * 1024 * 1024
 
@@ -41,7 +45,7 @@ def drop(temp):
 
 
 def download(root, meta, tool, known):
-    target = root/'models/tools'/tool['directory']/tool['file']
+    target = model_store.location(root)/'tools'/tool['directory']/tool['file']
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         if target.stat().st_size == tool['size'] and known.get('sha256'):
@@ -102,14 +106,14 @@ def download(root, meta, tool, known):
             time.sleep(2)
 
 
-def main():
+def _main():
     parser = argparse.ArgumentParser(description='Scarica i modelli ausiliari.')
     parser.add_argument('--tool', choices=['sep', 'voice', 'all'], default='all')
     args = parser.parse_args()
 
     root = pathlib.Path(__file__).resolve().parents[1]
     meta = load(root)
-    record_path = root/'models/tools-installed.json'
+    record_path = model_store.location(root)/'tools-installed.json'
     known = {}
     if record_path.exists():
         try:
@@ -125,9 +129,16 @@ def main():
     for tool in wanted:
         digest = download(root, meta, tool, known.get(tool['file'], {}))
         record['tools'][tool['file']] = {'id': tool['id'], 'directory': tool['directory'], 'size': tool['size'], 'sha256': digest}
-        print('  %s: pronto in models/tools/%s' % (tool['id'], tool['directory']), flush=True)
+        print('  %s: pronto in %s' % (tool['id'], model_store.location(root)/'tools'/tool['directory']), flush=True)
     record_path.write_text(json.dumps(record, indent=1), encoding='utf-8')
-    print('Strumenti pronti (registrati in models/tools-installed.json)', flush=True)
+    print('Strumenti pronti (registrati in %s)' % record_path, flush=True)
+
+
+def main():
+    root = pathlib.Path(__file__).resolve().parents[1]
+    with model_store.exclusive(root):
+        model_store.check_idle(root)
+        _main()
 
 
 if __name__ == '__main__':

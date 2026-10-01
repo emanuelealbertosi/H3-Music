@@ -1,6 +1,6 @@
 # H3-Music per Mac · anteprima
 
-Scarica il pacchetto adatto da [GitHub Releases](https://github.com/emanuelealbertosi/H3-Music/releases/tag/v1.6.0-macos-preview.2):
+Scarica il pacchetto adatto da [GitHub Releases](https://github.com/emanuelealbertosi/H3-Music/releases/tag/v1.6.1-macos-preview.1):
 
 - **H3-Music-Mac-arm64.zip** per Apple Silicon (M1, M2, M3 e successivi).
 - **H3-Music-Mac-x86_64.zip** per Mac Intel.
@@ -52,3 +52,15 @@ Il workflow GitHub compila il motore nativo per entrambe le architetture dalla r
 I controlli automatici verificano il caricamento del motore e dei runtime Python, l'avvio del servizio, il database, il salvataggio dei progetti, FFmpeg e le preferenze CPU. **Non equivalgono a un collaudo completo di brani generati, clonazione o qualità sonora su ogni GPU Mac**. Metal va provato sul Mac dell'utilizzatore; in caso di problemi seleziona CPU e conserva il log del lavoro. Questa è perciò una prerelease sperimentale.
 
 LM Studio e Tailscale restano facoltativi. Su Mac l'assistente usa lo stesso indirizzo locale configurabile. Per Tailscale, con il relativo comando disponibile nel PATH, puoi eseguire `runtime/python/bin/python scripts/tailscale_access.py` per attivare l'accesso e lo stesso comando seguito da `--disable` per disattivarlo; viene mantenuto l'accesso privato della tailnet.
+
+## Cartella dei modelli
+
+Con il codice 1.6.1 o successivo, in **Sistema → Cartella dei modelli** puoi trasferire i modelli in una cartella dedicata su un altro disco. La copia viene controllata prima di rimuovere gli originali. I nuovi download e gli aggiornamenti della trascrizione usano automaticamente la nuova posizione; le librerie Python restano nella cartella dell’app. Il disco scelto deve essere collegato durante l’uso.
+
+Prima dell’installazione puoi indicare la destinazione dal Terminale:
+
+```sh
+bash /percorso/H3-Music/Installa-Mac.command --models-dir "/Volumes/NomeDisco/Modelli/H3-Music"
+```
+
+Scegli una cartella vuota. Se i modelli sono già installati, vengono trasferiti senza un nuovo download. L’installatore controlla lo spazio per i modelli sul disco scelto e quello per Python sul disco dell’app. La scelta locale non viene pubblicata su GitHub.

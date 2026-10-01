@@ -38,6 +38,15 @@ class UpdateTests(unittest.TestCase):
  def test_reject_unsafe_metadata_paths(self):
   for name in ('../outside','F:/outside','/outside','..\\outside'):
    with self.assertRaises(ValueError):self.update([entry(name,b'new')],lambda url,out:out.write_bytes(b'new'))
+ def test_external_models_stage_on_destination_volume(self):
+  external=self.root/'external-models/SheetSage2';external.mkdir(parents=True)
+  original=pathlib.Path.replace
+  def replace(path,target):
+   self.assertTrue(path.is_relative_to(external.parent), 'Staging must stay on the models volume')
+   return original(path,target)
+  with patch.object(pathlib.Path,'replace',replace):
+   update_files(self.root/'application',external,'repo','revision',[entry('module.py',b'new')],lambda url,out:out.write_bytes(b'new'))
+  self.assertEqual((external/'module.py').read_bytes(),b'new')
  def test_revision_is_read_from_installed_manifest(self):
   import json
   p=self.root/'models/transcription-manifest.json';p.write_text(json.dumps({'sheet_revision':'abc'}))

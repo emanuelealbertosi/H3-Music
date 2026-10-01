@@ -13,7 +13,7 @@ def matches(path,entry):
 
 def update_files(root,folder,repo,revision,entries,download):
  root=pathlib.Path(root);folder=pathlib.Path(folder);folder.mkdir(parents=True,exist_ok=True)
- temp=root/'runtime/install-temp';temp.mkdir(parents=True,exist_ok=True)
+ temp=folder.parent/'.install-temp';temp.mkdir(parents=True,exist_ok=True)
  pending=[]
  with tempfile.TemporaryDirectory(prefix='transcription-update-',dir=temp) as staging:
   staging=pathlib.Path(staging)
@@ -30,7 +30,7 @@ def update_files(root,folder,repo,revision,entries,download):
    pending.append((target,candidate,relative))
   if not pending:return None
   # All downloads are validated before touching any installed file.
-  backups=root/'backups';backups.mkdir(exist_ok=True)
+  backups=folder.parent/'.backups';backups.mkdir(exist_ok=True)
   backup=pathlib.Path(tempfile.mkdtemp(prefix='transcription-',dir=backups));changed=[]
   try:
    for target,candidate,relative in pending:
