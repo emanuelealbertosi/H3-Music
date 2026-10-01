@@ -1,7 +1,7 @@
 """Activate a verified native engine, preserving the previous engine and settings."""
 import argparse, json, pathlib, shutil, sqlite3, sys, time, uuid
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-import execution
+import execution, windows_engine
 from contextlib import closing
 
 def activate(root, candidate, backend='cuda'):
@@ -9,6 +9,7 @@ def activate(root, candidate, backend='cuda'):
     runtime = root/'runtime'; current = runtime/'engine'
     if not candidate.is_relative_to(root) or candidate == current or current in candidate.parents:
         raise ValueError('La build candidata deve essere una cartella separata dentro H3-Music.')
+    windows_engine.enable_utf8(candidate/'audiocpp_cli.exe')
     if backend == 'cuda':
         report = execution.check_cuda(root, candidate/'audiocpp_cli.exe')
     else:

@@ -129,6 +129,9 @@ def relocate(root, value, transfer=True, progress=lambda **_: None):
     """Caller holds exclusive(). Keep all source files until config commits."""
     source = location(root).resolve()
     target = validate_destination(root, source, value, transfer)
+    if os.name == 'nt' and not str(target).isascii():
+        import windows_engine
+        windows_engine.prepare(root)
     if source == target:
         return {'path': str(target), 'warning': ''}
     if not transfer:

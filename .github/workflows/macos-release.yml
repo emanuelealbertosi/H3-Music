@@ -57,6 +57,7 @@ jobs:
           runtime/python/bin/python -m unittest discover -s tests -p test_macos_space.py -v
           runtime/python/bin/python -m unittest discover -s tests -p test_model_store.py -v
           runtime/python/bin/python -m unittest discover -s tests -p test_transcription_update.py -v
+          runtime/python/bin/python -m unittest discover -s tests -p test_windows_engine.py -v
           runtime/python/bin/python tests/macos_installer_shell.py
           runtime/transcription/bin/python tests/transcription_runtime_smoke.py
       - name: Package native app
