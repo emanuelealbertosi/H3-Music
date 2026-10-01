@@ -118,6 +118,33 @@ class ResingingTests(unittest.TestCase):
   generated=generated[:8]+generated[16:]
   with self.assertRaisesRegex(ValueError,'frase'):
    resinging.alignment(original,generated,allow_phrases=False,verification=True)
+ def tempo_notes(self,seconds,scale=1.,offset=.4):
+  original=[(2+i*.35,2+i*.35+.28,60+(i*13)%17) for i in range(max(20,int((seconds-5)/.35)))]
+  return original,[(scale*a+offset,scale*b+offset,p) for a,b,p in original]
+ def test_small_uniform_tempo_drift_is_corrected_across_song_lengths(self):
+  for seconds in (24.94,119.095,149.9,150.1,217.316,240):
+   for scale in (.982,1.018):
+    with self.subTest(seconds=seconds,scale=scale):
+     original,generated=self.tempo_notes(seconds,scale)
+     if seconds<30:
+      # The short case still meets the existing constant-delay tolerance.
+      self.assertEqual(resinging.alignment(original,generated),resinging.phrase_alignment(original,generated))
+     else:
+      report=resinging.alignment(original,generated)
+      self.assertAlmostEqual(report['tempo_scale'],scale,places=8)
+      self.assertEqual(report['matching_notes'],len(original))
+      self.assertLess(report['predicted_corrected_timing']['max_onset_error_seconds'],1e-8)
+      with self.assertRaises(ValueError):resinging.alignment(original,generated,allow_phrases=False,verification=True)
+ def test_previously_good_constant_alignments_keep_the_same_path_below_and_above_150_seconds(self):
+  for seconds in (12,24.94,89.513,119.095,149.9,150,150.1,185.156,217.316,240):
+   original,generated=self.tempo_notes(seconds,1.,.1)
+   self.assertEqual(resinging.alignment(original,generated),resinging.phrase_alignment(original,generated))
+   self.assertNotIn('tempo_scale',resinging.alignment(original,generated))
+ def test_tempo_correction_does_not_accept_large_changes_or_wrong_melodies(self):
+  for scale,offset,transpose in ((.96,.4,0),(1.04,.4,0),(.982,3.,0),(.982,.4,12)):
+   original,generated=self.tempo_notes(120,scale,offset)
+   generated=[(a,b,p+transpose) for a,b,p in generated]
+   with self.subTest(scale=scale,offset=offset,transpose=transpose),self.assertRaises(ValueError):resinging.alignment(original,generated)
  def test_added_vocal_intro_does_not_become_the_global_delay(self):
   original=[(10+i*.4,10+i*.4+.3,60+i%5) for i in range(30)]
   intro=[(2+i*.4,2+i*.4+.3,60+i%5) for i in range(6)]
@@ -147,12 +174,38 @@ class ResingingTests(unittest.TestCase):
    self.assertLess(math.sqrt(sum(x*x for x in before)/len(before)),100,msg=f'Onset {a}')
    crossings=sum(x<=0<y for x,y in zip(signal,signal[1:]))
    self.assertAlmostEqual(crossings/.1,440,delta=15)
+ @unittest.skipUnless(app.FFMPEG.is_file(),'Bundled FFmpeg is not installed on this runner')
+ def test_real_tempo_render_preserves_pitch_onsets_and_sample_duration(self):
+  original,generated=self.tempo_notes(27.5,.975,.35)
+  report=resinging.alignment(original,generated);rate=48000;seconds=28
+  self.assertAlmostEqual(report['tempo_scale'],.975,places=8)
+  samples=array.array('h',[0])*(seconds*rate)
+  for a,b,_ in generated:
+   for i in range(round(a*rate),round(b*rate)):samples[i]=round(9000*math.sin(2*math.pi*440*(i/rate-a)))
+  source=app.DATA/'tempo-source.wav'
+  with wave.open(str(source),'wb') as f:f.setparams((1,2,rate,0,'NONE','not compressed'));f.writeframes(samples.tobytes())
+  out=app.DATA/'tempo-aligned.wav'
+  def ff(args,*_):subprocess.run([str(app.FFMPEG),'-y','-v','error',*map(str,args)],check=True,capture_output=True)
+  resinging.render_aligned_voice(app,source,out,report,seconds,seconds,ff)
+  pcm=app.DATA/'tempo-checked.wav';ff(['-i',out,'-ac','1','-c:a','pcm_s16le',pcm])
+  with wave.open(str(pcm),'rb') as f:
+   self.assertEqual(f.getnframes(),seconds*rate);values=array.array('h');values.frombytes(f.readframes(f.getnframes()))
+  for a,b,_ in original:
+   signal=values[round((a+.07)*rate):round((a+.17)*rate)]
+   self.assertGreater(math.sqrt(sum(x*x for x in signal)/len(signal)),3000)
+   crossings=sum(x<=0<y for x,y in zip(signal,signal[1:]))
+   self.assertAlmostEqual(crossings/.1,440,delta=15)
+   onsets=[]
+   for delta in range(-7,9):
+    begin=round((a+delta*.01)*rate);block=values[begin:begin+rate//100]
+    if math.sqrt(sum(x*x for x in block)/len(block))>1000:onsets.append(delta*.01)
+   self.assertTrue(onsets);self.assertLessEqual(abs(min(onsets)),.04)
  def test_note_validation_rejects_bad_or_unordered_input(self):
   path=app.DATA/'notes.lab'
   for contents in ('0 1 nan','2 1 60','0 1 60.5','1 2 60\n0 1 61'):
    path.write_text(contents)
    with self.assertRaises(ValueError):resinging.read_notes(path)
- def exercise_pipeline(self, clone=False, cancelled=False, drift=False, truncated=False, backend='cpu', automatic=True, phrases=False, bad_check=False, mislabeled_mix=False):
+ def exercise_pipeline(self, clone=False, cancelled=False, drift=False, truncated=False, backend='cpu', automatic=True, phrases=False, bad_check=False, mislabeled_mix=False, tempo=False):
   req=app.validate(self.req | {'clone_enabled': clone, 'clone_voice': 'sample' if clone else '', 'voice_steps': 50, 'mix': {'automatic': automatic}})
   project=app.project_save({'request':req})
   with self.preflight(),patch.object(app,'ready',return_value={'ready':True}),patch.object(resinging.cloning,'preflight'):
@@ -168,6 +221,10 @@ class ResingingTests(unittest.TestCase):
      original,generated=self.phrase_notes((.44,.74,.51))
      notes=generated if output.name=='generated-score' or bad_check and output.name in ('aligned-score','aligned-vocal-score') else original
      if mislabeled_mix and output.name=='aligned-score':notes=[(a,b,p+12) for a,b,p in original]
+     (output/'melody_vocal.lab').write_text('\n'.join(f'{a} {b} {p}' for a,b,p in notes))
+    if tempo:
+     original,generated=self.tempo_notes(27.5,.975,.35)
+     notes=generated if output.name=='generated-score' or bad_check and output.name in ('aligned-score','aligned-vocal-score') else original
      (output/'melody_vocal.lab').write_text('\n'.join(f'{a} {b} {p}' for a,b,p in notes))
     (output/'score.abc').write_text('X:1\nM:4/4\nL:1/8\nQ:1/4=120\nK:C\nCDEF|')
    elif '--task' in args:
@@ -204,7 +261,7 @@ class ResingingTests(unittest.TestCase):
     self.assertNotIn('rubberband',filters);self.assertNotIn('atempo',filters)
     if automatic:self.assertEqual(result['alignment']['excerpt_voice_gain_db'],5);self.assertEqual(measured.call_count,2)
     else:measured.assert_not_called();self.assertNotIn('excerpt_voice_gain_db',result['alignment'])
-    if phrases:
+    if phrases or tempo:
      self.assertIn('verified_timing',result['alignment'])
      self.assertEqual(result['alignment']['verification_source'],'isolated-replacement-vocals' if mislabeled_mix else 'original-backing-mix')
      if mislabeled_mix:
@@ -212,6 +269,9 @@ class ResingingTests(unittest.TestCase):
       self.assertEqual(isolated[isolated.index('--input')+1],str(d/'new-singing.wav'))
      verification=next(a for a in calls if str(d/'alignment-check.wav')==a[-1])
      self.assertIn('start=20.00000000:end=45.00000000',verification[verification.index('-filter_complex')+1])
+     if tempo:
+      correction=next(a for a in calls if str(d/'new-singing.wav')==a[-1])
+      self.assertIn('atempo=0.975',correction[correction.index('-af')+1])
   self.assertEqual((app.DATA/'imports'/self.source/'source.wav').read_bytes(),b'original untouched')
  def test_cpu_pipeline_preserves_music_and_outside_vocals(self):self.exercise_pipeline()
  def test_cuda_pipeline_optional_clone(self):self.exercise_pipeline(clone=True,backend='cuda')
@@ -222,6 +282,8 @@ class ResingingTests(unittest.TestCase):
  def test_phrase_pipeline_verifies_corrected_audio_on_selected_original_base(self):self.exercise_pipeline(phrases=True)
  def test_phrase_pipeline_rejects_failed_audio_verification_before_cloning(self):self.exercise_pipeline(phrases=True,bad_check=True,clone=True)
  def test_mislabeled_mix_is_rechecked_against_replacement_voice_only(self):self.exercise_pipeline(phrases=True,mislabeled_mix=True)
+ def test_tempo_pipeline_verifies_the_actual_audio_before_optional_clone(self):self.exercise_pipeline(tempo=True,clone=True)
+ def test_tempo_pipeline_cannot_publish_unverified_audio(self):self.exercise_pipeline(tempo=True,bad_check=True,clone=True)
 
 
 if __name__=='__main__':unittest.main(verbosity=2)

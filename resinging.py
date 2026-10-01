@@ -69,12 +69,12 @@ def read_notes(path):
     return result
 
 
-def matched_notes(original, generated, verification=False):
+def matched_notes(original, generated, verification=False, time_scale=1., time_offset=None):
     """Match pitches in order; timing only breaks ties between repeated notes."""
     n, m = len(original), len(generated)
     if min(n, m) < 6:
         raise ValueError('Non sono state riconosciute abbastanza note cantate per allineare la voce.')
-    guess = 0. if verification else generated[0][0] - original[0][0]
+    guess = (0. if verification else generated[0][0] - time_scale*original[0][0]) if time_offset is None else time_offset
     # An added vocal intro is not a reliable estimate of the song's delay.
     if abs(guess)>2.5 and m>n: guess=0.
     previous = list(map(float, range(m + 1)))
@@ -83,7 +83,7 @@ def matched_notes(original, generated, verification=False):
         current = [float(i)] + [0.0] * m
         for j in range(1, m + 1):
             same = original[i-1][2] == generated[j-1][2]
-            error = abs(original[i-1][0] + guess - generated[j-1][0])
+            error = abs(time_scale*original[i-1][0] + guess - generated[j-1][0])
             diagonal = previous[j-1] + (0 if same else 1.5) + min(1.5 if verification else .3, error * (.8 if verification else .1)) if error <= 2.5 else math.inf
             choices = (diagonal, previous[j] + 1, current[j-1] + 1)
             k = min(range(3), key=lambda k: choices[k])
@@ -110,9 +110,7 @@ def timing_stats(errors):
             'max_onset_error_seconds': max(errors)}
 
 
-def alignment(original, generated, allow_phrases=True, verification=False):
-    """Keep good constant alignments; repair only reliable phrase offsets."""
-    matched = matched_notes(original, generated,verification=verification)
+def check_phrase_coverage(original, matched):
     # A good global ratio must not hide an entire missing refrain or phrase.
     recognized = {o for o,g in matched}; original_phrases = []
     for note in original:
@@ -121,6 +119,13 @@ def alignment(original, generated, allow_phrases=True, verification=False):
         original_phrases[-1].append(note)
     if any(len(phrase)>=3 and sum(note in recognized for note in phrase)/len(phrase)<.7 for phrase in original_phrases):
         raise ValueError('Una frase del nuovo canto non corrisponde alla melodia originale: il mix è stato fermato.')
+    return original_phrases
+
+
+def phrase_alignment(original, generated, allow_phrases=True, verification=False):
+    """Keep good constant alignments; repair only reliable phrase offsets."""
+    matched = matched_notes(original, generated,verification=verification)
+    check_phrase_coverage(original, matched)
     delay = statistics.median(g[0] - o[0] for o, g in matched)
     stats = timing_stats(abs(g[0] - o[0] - delay) for o, g in matched)
     report = {'original_notes': len(original), 'generated_notes': len(generated), 'matching_notes': len(matched),
@@ -161,6 +166,49 @@ def alignment(original, generated, allow_phrases=True, verification=False):
                      'min_gap_tempo':min(rates), 'max_gap_tempo':max(rates)}
 
 
+def tempo_alignment(original, generated):
+    """Recover a small uniform tempo drift, requiring the whole vocal sequence."""
+    if min(len(original),len(generated))<20 or original[-1][0]-original[0][0]<10:
+        raise ValueError('Non ci sono abbastanza note per verificare una variazione di tempo.')
+    def fit(pairs):
+        sample=pairs[::max(1,math.ceil(len(pairs)/100))]
+        slopes=[(h[0]-g[0])/(p[0]-o[0]) for i,(o,g) in enumerate(sample) for p,h in sample[i+1:] if p[0]-o[0]>10]
+        if not slopes:raise ValueError('Estensione vocale insufficiente per stimare il tempo.')
+        scale=statistics.median(slopes)
+        return scale,statistics.median(g[0]-scale*o[0] for o,g in pairs)
+    candidates=[]
+    for guess in (1.,.985,1.015,.97,1.03):
+        try:
+            pairs=matched_notes(original,generated,time_scale=guess)
+            for _ in range(2):
+                scale,offset=fit(pairs)
+                if not .97-1e-7<=scale<=1.03+1e-7 or abs(offset)>2.5:raise ValueError('Variazione di tempo troppo grande.')
+                pairs=matched_notes(original,generated,verification=True,time_scale=scale,time_offset=offset)
+            scale,offset=fit(pairs)
+            if not .97-1e-7<=scale<=1.03+1e-7 or abs(scale-1)<.003 or abs(offset)>2.5 or len(pairs)/max(len(original),len(generated))<.7:
+                continue
+            phrases=check_phrase_coverage(original,pairs)
+            stats=timing_stats(abs((g[0]-offset)/scale-o[0]) for o,g in pairs)
+            if stats['p90_onset_error_seconds']>.15 or stats['max_onset_error_seconds']>.45:continue
+            candidates.append({'original_notes':len(original),'generated_notes':len(generated),'matching_notes':len(pairs),
+                'vocal_delay_seconds':offset,'tempo_scale':scale,'voice_tempo_change_percent':(scale-1)*100,
+                'method':'SheetSage2 bounded tempo alignment; pitch-preserving voice correction',
+                'phrases':len(phrases),'predicted_corrected_timing':stats,**stats})
+        except ValueError:continue
+    if not candidates:raise ValueError('Il tempo del nuovo canto non è correggibile con sufficiente affidabilità.')
+    return max(candidates,key=lambda r:(r['matching_notes'],-r['p90_onset_error_seconds']))
+
+
+def alignment(original, generated, allow_phrases=True, verification=False):
+    try:return phrase_alignment(original,generated,allow_phrases=allow_phrases,verification=verification)
+    except ValueError as original_error:
+        # A verification must only measure the rendered audio, never propose
+        # another correction that would make its own timing test pass.
+        if not allow_phrases or verification:raise
+        try:return tempo_alignment(original,generated)
+        except ValueError:raise original_error
+
+
 def phrase_intervals(report, duration, source_duration):
     """Extend the phrase map at slope one, keeping missing edges silent."""
     anchors = report['anchors']
@@ -178,7 +226,9 @@ def render_aligned_voice(app, source, output, report, duration, source_duration,
     if 'anchors' not in report:
         delay = report['vocal_delay_seconds']
         filters = f'atrim=start={max(0,delay):.8f},asetpts=PTS-STARTPTS'
-        if delay < 0: filters += f',adelay={round(-delay*48000)}S:all=1'
+        scale=report.get('tempo_scale',1.)
+        if 'tempo_scale' in report:filters+=f',atempo={scale:.10f}'
+        if delay < 0: filters += f',adelay={round(-delay/scale*48000)}S:all=1'
         filters += f',apad,atrim=duration={duration:.8f}'
         ff(['-i',source,'-af',filters,'-ar','48000','-ac','2','-c:a','pcm_s24le',output], 'Allineamento del nuovo canto',82)
         return
@@ -265,7 +315,7 @@ def process(app, job, d):
     fresh_stems = d/'generated-stems'; separate(generated/'audio.wav', fresh_stems, 'Estrazione del nuovo canto', 75)
     aligned = d/'new-singing.wav'
     render_aligned_voice(app,fresh_stems/'vocals.wav',aligned,report,duration,generated_duration,ff)
-    if 'anchors' in report:
+    if 'anchors' in report or 'tempo_scale' in report:
         verification = d/'alignment-check.wav'
         inputs = ['-i',aligned]
         for name in ('drums','bass','other'): inputs += ['-i',stems/(name+'.wav')]
