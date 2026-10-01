@@ -576,10 +576,12 @@ def install_loras():
   threading.Thread(target=run,daemon=True).start()
  return {'ok':True}
 
-def llm(path,payload=None):
- s=settings(); url=local_llm_url(s['llm_url'])+path
+def llm(path,payload=None,timeout=None):
+ s=settings(); base=local_llm_url(s['llm_url']); url=base+path
+ if path.startswith('/api/'):
+  parsed=urllib.parse.urlsplit(base);url=urllib.parse.urlunsplit((parsed.scheme,parsed.netloc,path,'',''))
  req=urllib.request.Request(url,data=jdump(payload).encode() if payload else None,headers={'Content-Type':'application/json'})
- with urllib.request.urlopen(req,timeout=180 if payload else 5) as response: return json.load(response)
+ with urllib.request.urlopen(req,timeout=timeout or (180 if payload else 5)) as response: return json.load(response)
 
 def assist(data):
  req=validate(data.get('request',{})); instruction=str(data.get('instruction','')).strip()[:8000]

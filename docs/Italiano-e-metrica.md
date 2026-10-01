@@ -61,6 +61,11 @@ Richiede **LM Studio** con un modello istruito e il server locale attivo,
 configurati in Sistema. Non richiede un servizio a pagamento.
 Per lasciare libera la GPU musicale, carica l'LLM sulla CPU. Se lo carichi
 sulla GPU, scaricalo da LM Studio prima di avviare YuE2.
+Senza un modello selezionato, viene usata una delle istanze già caricate,
+conservandone la scelta CPU/GPU. L'adattamento non carica automaticamente
+il primo modello disponibile. Nei modelli che espongono il controllo del
+ragionamento, viene disattivato per questa richiesta. Negli altri casi
+viene richiesta una risposta JSON strutturata e controllata prima dell'uso.
 
 Le sillabe sono una stima: sinalefi, iati e melismi dipendono dal canto.
 Le frasi fuori dall'intervallo sono segnalate anche dopo il tentativo di
