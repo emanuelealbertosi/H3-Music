@@ -9,7 +9,8 @@ import transcription
 import cloning
 import mixing
 
-MAX_SECONDS = 150
+MAX_SECONDS = 240
+DURATION_TOLERANCE = .5
 
 
 def validate_fields(req):
@@ -44,8 +45,8 @@ def preflight(app, req):
     start, end = req['base_start'], req['base_end'] or meta['duration']
     if not 0 <= start < end <= meta['duration'] + .05 or end - start < 3:
         raise ValueError('Scegli un tratto di almeno 3 secondi entro la canzone originale.')
-    if end - start > MAX_SECONDS + .05:
-        raise ValueError(f'Il nuovo canto può coprire fino a {MAX_SECONDS} secondi per volta. Scegli inizio e fine del tratto.')
+    if end - start > MAX_SECONDS + DURATION_TOLERANCE:
+        raise ValueError('Il nuovo canto può coprire fino a 4 minuti (240 secondi) per volta. Scegli inizio e fine del tratto.')
     if not req['lyrics'].strip():
         raise ValueError('Scrivi il testo da cantare sulla base originale.')
     return source, meta, start, end

@@ -30,7 +30,7 @@ const assert=require('node:assert/strict');
   await p.locator('#base-enabled').check();assert.equal(await p.locator('#base-fields').isVisible(),true);
   assert.equal(await p.locator('#plan').isDisabled(),true);assert.equal(await p.locator('#abc').isDisabled(),true);
   assert.equal(await p.locator('#studio-mix-fields').isVisible(),true);
-  await p.locator('#base-source').selectOption(source.id);
+  await p.locator('#base-source').selectOption(source.id);assert.equal(await p.locator('#base-status').textContent(),'');
   await p.locator('#base-fields details').evaluate(e=>e.open=true);
   await p.locator('#base-start').fill('18.53');await p.locator('#base-end').fill('43.47');
   await p.locator('#generate').click();await p.waitForFunction(()=>document.querySelector('#toast').textContent==='Lavoro accodato');

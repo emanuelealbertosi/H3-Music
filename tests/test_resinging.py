@@ -41,8 +41,17 @@ class ResingingTests(unittest.TestCase):
  def test_preflight_range_and_dependencies(self):
   with patch.object(app,'ready',return_value={'ready': True}), patch.object(resinging.cloning,'preflight'), patch.object(resinging.transcription,'status',return_value={'ready': True}):
    self.assertEqual(resinging.preflight(app,app.validate(self.req))[2:], (20.,45.))
-   for changes in ({'base_end': 0}, {'base_start': 50}, {'base_end': 201}, {'base_end': 21}, {'lyrics': ''}):
+   self.assertEqual(resinging.preflight(app,app.validate(self.req | {'base_start':0,'base_end':0}))[2:], (0.,200))
+   for changes in ({'base_start': 50}, {'base_end': 201}, {'base_end': 21}, {'lyrics': ''}):
     with self.subTest(changes=changes), self.assertRaises(ValueError): resinging.preflight(app,app.validate(self.req | changes))
+ def test_whole_three_and_four_minute_songs_and_encoding_padding(self):
+  metadata=app.DATA/'imports'/self.source/'metadata.json'
+  with patch.object(app,'ready',return_value={'ready':True}),patch.object(resinging.cloning,'preflight'),patch.object(resinging.transcription,'status',return_value={'ready':True}):
+   for duration in (173.67,185.182041,240,240.2,240.5):
+    app.write_json(metadata,{'id':self.source,'name':'song.mp3','file':'source.wav','duration':duration})
+    self.assertEqual(resinging.preflight(app,app.validate(self.req|{'base_start':0,'base_end':0}))[3],duration)
+   app.write_json(metadata,{'id':self.source,'name':'song.mp3','file':'source.wav','duration':241})
+   with self.assertRaisesRegex(ValueError,'4 minuti'):resinging.preflight(app,app.validate(self.req|{'base_start':0,'base_end':0}))
  def test_alignment_accepts_constant_positive_and_negative_delays_and_repeated_notes(self):
   original = [(i*.4,i*.4+.3,60+i%5) for i in range(30)]
   for delay in (.12, -.1):
