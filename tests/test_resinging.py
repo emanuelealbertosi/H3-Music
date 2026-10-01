@@ -3,6 +3,10 @@ import pathlib
 import sys
 import tempfile
 import unittest
+import array
+import math
+import subprocess
+import wave
 from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -64,12 +68,69 @@ class ResingingTests(unittest.TestCase):
   original = [(i*.4,i*.4+.3,60+i%5) for i in range(30)]
   for generated in ([],[(a,b,p+12) for a,b,p in original],[(a*1.1,b*1.1,p) for a,b,p in original],[(a+3,b+3,p) for a,b,p in original]):
    with self.subTest(generated=len(generated)), self.assertRaises(ValueError): resinging.alignment(original,generated)
+ def phrase_notes(self, shifts):
+  original=[];generated=[]
+  for phrase,shift in enumerate(shifts):
+   for i in range(8):
+    a=2+phrase*8+i*.4;p=60+i%5
+    original.append((a,a+.3,p));generated.append((a+shift,a+.3+shift,p))
+  return original,generated
+ def test_phrase_alignment_repairs_different_anticipations_or_delays(self):
+  for shifts in ((.44,.74,.51),(-.44,-.74,-.51)):
+   a,b=self.phrase_notes(shifts);report=resinging.alignment(a,b)
+   self.assertEqual(report['phrases'],3)
+   self.assertGreater(report['p90_onset_error_seconds'],.2)
+   self.assertLess(report['predicted_corrected_timing']['max_onset_error_seconds'],1e-8)
+   self.assertTrue(.85<=report['min_gap_tempo']<=report['max_gap_tempo']<=1.18)
+   points=resinging.phrase_intervals(report,25,25)
+   self.assertTrue(all(y['source']>x['source'] and y['target']>x['target'] for x,y in zip(points,points[1:])))
+   with self.assertRaises(ValueError):resinging.alignment(a,b,allow_phrases=False)
+ def test_phrase_alignment_keeps_safety_for_large_or_unreliable_changes(self):
+  for shifts in ((0,2,0),(0,3,0)):
+   a,b=self.phrase_notes(shifts)
+   with self.assertRaises(ValueError):resinging.alignment(a,b)
+  a,b=self.phrase_notes((.44,.74,.51))
+  b=[(x,y,p+12) for x,y,p in b]
+  with self.assertRaisesRegex(ValueError,'melodia'):resinging.alignment(a,b)
+ def test_repeated_notes_cannot_jump_to_another_refrain(self):
+  original=[];generated=[]
+  for start in (10,40,70):
+   phrase=[(start+i*.24,start+i*.24+.23,77 if i<16 else 72) for i in range(17)]
+   original.extend(phrase);generated.extend(phrase[1:] if start==40 else phrase)
+  report=resinging.alignment(original,generated,allow_phrases=False,verification=True)
+  self.assertAlmostEqual(report['vocal_delay_seconds'],0)
+  self.assertLess(report['p90_onset_error_seconds'],.01)
+  pairs=resinging.matched_notes(original,generated,verification=True)
+  self.assertTrue(all(abs(o[0]-g[0])<.01 for o,g in pairs))
+ @unittest.skipUnless(app.FFMPEG.is_file(),'Bundled FFmpeg is not installed on this runner')
+ def test_real_phrase_render_preserves_pitch_onsets_and_sample_duration(self):
+  original,generated=self.phrase_notes((-.44,-.74,-.51))
+  report=resinging.alignment(original,generated);rate=48000;seconds=25
+  samples=array.array('h',[0])*(seconds*rate)
+  for a,b,_ in generated:
+   for i in range(round(a*rate),round(b*rate)):
+    samples[i]=round(9000*math.sin(2*math.pi*440*(i/rate-a)))
+  source=app.DATA/'source-phrases.wav'
+  with wave.open(str(source),'wb') as f:f.setparams((1,2,rate,0,'NONE','not compressed'));f.writeframes(samples.tobytes())
+  out=app.DATA/'aligned.wav'
+  def ff(args,*_):subprocess.run([str(app.FFMPEG),'-y','-v','error',*map(str,args)],check=True,capture_output=True)
+  resinging.render_aligned_voice(app,source,out,report,seconds,seconds,ff)
+  pcm=app.DATA/'checked.wav';ff(['-i',out,'-ac','1','-c:a','pcm_s16le',pcm])
+  with wave.open(str(pcm),'rb') as f:
+   self.assertEqual(f.getnframes(),seconds*rate);values=array.array('h');values.frombytes(f.readframes(f.getnframes()))
+  for a,b,_ in original:
+   signal=values[round((a+.07)*rate):round((a+.17)*rate)]
+   before=values[round((a-.06)*rate):round((a-.02)*rate)]
+   self.assertGreater(math.sqrt(sum(x*x for x in signal)/len(signal)),3000)
+   self.assertLess(math.sqrt(sum(x*x for x in before)/len(before)),100,msg=f'Onset {a}')
+   crossings=sum(x<=0<y for x,y in zip(signal,signal[1:]))
+   self.assertAlmostEqual(crossings/.1,440,delta=15)
  def test_note_validation_rejects_bad_or_unordered_input(self):
   path=app.DATA/'notes.lab'
   for contents in ('0 1 nan','2 1 60','0 1 60.5','1 2 60\n0 1 61'):
    path.write_text(contents)
    with self.assertRaises(ValueError):resinging.read_notes(path)
- def exercise_pipeline(self, clone=False, cancelled=False, drift=False, truncated=False, backend='cpu', automatic=True):
+ def exercise_pipeline(self, clone=False, cancelled=False, drift=False, truncated=False, backend='cpu', automatic=True, phrases=False, bad_check=False):
   req=app.validate(self.req | {'clone_enabled': clone, 'clone_voice': 'sample' if clone else '', 'voice_steps': 50, 'mix': {'automatic': automatic}})
   project=app.project_save({'request':req})
   with self.preflight(),patch.object(app,'ready',return_value={'ready':True}),patch.object(resinging.cloning,'preflight'):
@@ -81,6 +142,10 @@ class ResingingTests(unittest.TestCase):
    app.check_cancel(ident);calls.append(args)
    if '--output' in args:
     output=pathlib.Path(args[args.index('--output')+1]);(output/'melody_vocal.lab').write_text(note_text if not drift or output.name=='source-score' else '\n'.join(f'{i*.5} {i*.5+.3} {60+i%5}' for i in range(20)))
+    if phrases:
+     original,generated=self.phrase_notes((.44,.74,.51))
+     notes=generated if output.name=='generated-score' or bad_check and output.name=='aligned-score' else original
+     (output/'melody_vocal.lab').write_text('\n'.join(f'{a} {b} {p}' for a,b,p in notes))
     (output/'score.abc').write_text('X:1\nM:4/4\nL:1/8\nQ:1/4=120\nK:C\nCDEF|')
    elif '--task' in args:
     self.assertEqual(args[args.index('--backend')+1],backend)
@@ -103,7 +168,7 @@ class ResingingTests(unittest.TestCase):
   with self.preflight(),patch.object(app,'run_job_process',side_effect=run),patch.object(app,'command_for',side_effect=command),patch.object(app,'settings',return_value={'backend':backend,'threads':2}),patch.object(app,'audio_info',side_effect=info),patch.object(app,'voice_sample',return_value=ref),patch.object(resinging.cloning,'convert_voice',side_effect=convert) as vc,patch.object(app,'mix_voice',side_effect=mix),patch.object(resinging.mixing,'measure',side_effect=loudness) as measured:
    if cancelled:
     with self.assertRaises(app.JobCancelled):resinging.process(app,job,d)
-   elif drift or truncated:
+   elif drift or truncated or bad_check:
     with self.assertRaises(ValueError):resinging.process(app,job,d)
     self.assertFalse((d/'audio.wav').exists());vc.assert_not_called()
    else:
@@ -116,6 +181,10 @@ class ResingingTests(unittest.TestCase):
     self.assertNotIn('rubberband',filters);self.assertNotIn('atempo',filters)
     if automatic:self.assertEqual(result['alignment']['excerpt_voice_gain_db'],5);self.assertEqual(measured.call_count,2)
     else:measured.assert_not_called();self.assertNotIn('excerpt_voice_gain_db',result['alignment'])
+    if phrases:
+     self.assertIn('verified_timing',result['alignment'])
+     verification=next(a for a in calls if str(d/'alignment-check.wav')==a[-1])
+     self.assertIn('start=20.00000000:end=45.00000000',verification[verification.index('-filter_complex')+1])
   self.assertEqual((app.DATA/'imports'/self.source/'source.wav').read_bytes(),b'original untouched')
  def test_cpu_pipeline_preserves_music_and_outside_vocals(self):self.exercise_pipeline()
  def test_cuda_pipeline_optional_clone(self):self.exercise_pipeline(clone=True,backend='cuda')
@@ -123,6 +192,8 @@ class ResingingTests(unittest.TestCase):
  def test_cancel_stops_next_stage(self):self.exercise_pipeline(cancelled=True)
  def test_bad_timing_never_publishes_mix(self):self.exercise_pipeline(drift=True)
  def test_truncation_never_publishes_mix(self):self.exercise_pipeline(truncated=True)
+ def test_phrase_pipeline_verifies_corrected_audio_on_selected_original_base(self):self.exercise_pipeline(phrases=True)
+ def test_phrase_pipeline_rejects_failed_audio_verification_before_cloning(self):self.exercise_pipeline(phrases=True,bad_check=True,clone=True)
 
 
 if __name__=='__main__':unittest.main(verbosity=2)

@@ -69,12 +69,12 @@ def read_notes(path):
     return result
 
 
-def alignment(original, generated):
-    """Match note sequences, then accept only a stable constant vocal delay."""
+def matched_notes(original, generated, verification=False):
+    """Match pitches in order; timing only breaks ties between repeated notes."""
     n, m = len(original), len(generated)
     if min(n, m) < 6:
         raise ValueError('Non sono state riconosciute abbastanza note cantate per allineare la voce.')
-    guess = generated[0][0] - original[0][0]
+    guess = 0. if verification else generated[0][0] - original[0][0]
     previous = list(map(float, range(m + 1)))
     directions = bytearray(n * m)
     for i in range(1, n + 1):
@@ -82,7 +82,8 @@ def alignment(original, generated):
         for j in range(1, m + 1):
             same = original[i-1][2] == generated[j-1][2]
             error = abs(original[i-1][0] + guess - generated[j-1][0])
-            choices = (previous[j-1] + (0 if same else 1.5) + min(.3, error * .1), previous[j] + 1, current[j-1] + 1)
+            diagonal = previous[j-1] + (0 if same else 1.5) + min(1.5 if verification else .3, error * (.8 if verification else .1)) if error <= 2.5 else math.inf
+            choices = (diagonal, previous[j] + 1, current[j-1] + 1)
             k = min(range(3), key=lambda k: choices[k])
             current[j] = choices[k]; directions[(i-1)*m+j-1] = k
         previous = current
@@ -95,16 +96,115 @@ def alignment(original, generated):
             i -= 1; j -= 1
         elif k == 1: i -= 1
         else: j -= 1
-    if len(matched) / max(n, m) < .7:
+    if len(matched) / (n if verification else max(n, m)) < .7:
         raise ValueError('Il nuovo canto si discosta troppo dalla melodia originale. Prova un testo con una metrica più simile.')
+    return list(reversed(matched))
+
+
+def timing_stats(errors):
+    errors = sorted(errors)
+    return {'median_onset_error_seconds': statistics.median(errors),
+            'p90_onset_error_seconds': errors[min(len(errors)-1, math.ceil(.9*len(errors))-1)],
+            'max_onset_error_seconds': max(errors)}
+
+
+def alignment(original, generated, allow_phrases=True, verification=False):
+    """Keep good constant alignments; repair only reliable phrase offsets."""
+    matched = matched_notes(original, generated,verification=verification)
+    # A good global ratio must not hide an entire missing refrain or phrase.
+    recognized = {o for o,g in matched}; original_phrases = []
+    for note in original:
+        if not original_phrases or note[0]-original_phrases[-1][-1][1] > .6:
+            original_phrases.append([])
+        original_phrases[-1].append(note)
+    if any(len(phrase)>=3 and sum(note in recognized for note in phrase)/len(phrase)<.7 for phrase in original_phrases):
+        raise ValueError('Una frase del nuovo canto non corrisponde alla melodia originale: il mix è stato fermato.')
     delay = statistics.median(g[0] - o[0] for o, g in matched)
-    errors = sorted(abs(g[0] - o[0] - delay) for o, g in matched)
-    p90 = errors[min(len(errors)-1, math.ceil(.9*len(errors))-1)]
-    if abs(delay) > 2.5 or p90 > .2 or max(errors) > .65:
-        raise ValueError('Il nuovo canto cambia ritmo rispetto alla base. Il mix è stato fermato per non spostare la musica: prova un testo più vicino alla metrica originale.')
-    return {'original_notes': n, 'generated_notes': m, 'matching_notes': len(matched), 'vocal_delay_seconds': delay,
-            'median_onset_error_seconds': statistics.median(errors), 'p90_onset_error_seconds': p90,
-            'max_onset_error_seconds': max(errors), 'method': 'SheetSage2 note recognition; constant delay only'}
+    stats = timing_stats(abs(g[0] - o[0] - delay) for o, g in matched)
+    report = {'original_notes': len(original), 'generated_notes': len(generated), 'matching_notes': len(matched),
+              'vocal_delay_seconds': delay, **stats, 'method': 'SheetSage2 note recognition; constant delay only'}
+    constant_ok = abs(delay) <= 2.5 and stats['p90_onset_error_seconds'] <= .2 and stats['max_onset_error_seconds'] <= .65
+    if constant_ok and (not allow_phrases or stats['p90_onset_error_seconds'] <= .08):
+        return report
+    message = 'Il nuovo canto cambia troppo ritmo rispetto alla base. Non è stato possibile riallinearlo senza distorsioni: prova un testo più vicino alla metrica originale.'
+    if not allow_phrases or abs(delay) > 2.5:
+        raise ValueError(message)
+    groups = []
+    for o, g in matched:
+        if not groups or (o[0]-groups[-1][-1][0][1] > .6 and g[0]-groups[-1][-1][1][1] > .6):
+            groups.append([])
+        groups[-1].append((o,g))
+    if len(groups) < 2 or any(len(group) < 3 for group in groups):
+        if constant_ok: return report
+        raise ValueError(message)
+    anchors = []; errors = []; shifts = []
+    for group in groups:
+        shift = statistics.median(g[0]-o[0] for o,g in group)
+        shifts.append(shift)
+        errors.extend(abs(g[0]-o[0]-shift) for o,g in group)
+        # Keep consonant attacks and note releases out of the tempo-adjusted
+        # gaps: WSOLA needs a little audio context around each phrase.
+        a, b = group[0][0][0]-.12, group[-1][0][1]+.12
+        anchors.extend([{'source':a+shift,'target':a}, {'source':b+shift,'target':b}])
+    corrected = timing_stats(errors)
+    rates = [(b['source']-a['source'])/(b['target']-a['target']) for a,b in zip(anchors,anchors[1:])]
+    if max(map(abs,shifts)) > 2.5 or max(shifts)-min(shifts) > 1.5 or corrected['p90_onset_error_seconds'] > .2 or corrected['max_onset_error_seconds'] > .65 or any(not .85 <= rate <= 1.18 for rate in rates):
+        if constant_ok: return report
+        raise ValueError(message)
+    return report | {'method':'SheetSage2 phrase alignment; pitch-preserving gap adjustment',
+                     'phrases':len(groups), 'anchors':anchors, 'predicted_corrected_timing':corrected,
+                     'min_gap_tempo':min(rates), 'max_gap_tempo':max(rates)}
+
+
+def phrase_intervals(report, duration, source_duration):
+    """Extend the phrase map at slope one, keeping missing edges silent."""
+    anchors = report['anchors']
+    first, last = anchors[0], anchors[-1]
+    lead = first['source']-first['target']; tail = last['source']-last['target']
+    a = {'source':max(0.,lead), 'target':max(0.,-lead)}
+    b = {'source':min(source_duration,duration+tail), 'target':min(duration,source_duration-tail)}
+    points = [a] + [p for p in anchors if a['target'] < p['target'] < b['target']] + [b]
+    if len(points)<2 or any(y['source']<=x['source'] or y['target']<=x['target'] for x,y in zip(points,points[1:])):
+        raise ValueError('La mappa dei tempi del canto non è utilizzabile.')
+    return points
+
+
+def render_aligned_voice(app, source, output, report, duration, source_duration, ff):
+    if 'anchors' not in report:
+        delay = report['vocal_delay_seconds']
+        filters = f'atrim=start={max(0,delay):.8f},asetpts=PTS-STARTPTS'
+        if delay < 0: filters += f',adelay={round(-delay*48000)}S:all=1'
+        filters += f',apad,atrim=duration={duration:.8f}'
+        ff(['-i',source,'-af',filters,'-ar','48000','-ac','2','-c:a','pcm_s24le',output], 'Allineamento del nuovo canto',82)
+        return
+    points = phrase_intervals(report,duration,source_duration)
+    # Small overlapping margins avoid clicks at the joins. Only the voice enters
+    # this graph; the accompaniment never passes through a tempo filter.
+    filters = []; count = len(points)-1
+    rates = [(b['source']-a['source'])/(b['target']-a['target']) for a,b in zip(points,points[1:])]
+    margins = [0.]
+    for i in range(1,len(points)-1):
+        p = points[i]
+        margins.append(min(.015,(p['target']-points[i-1]['target'])/4,(points[i+1]['target']-p['target'])/4,
+                           p['source']/max(rates[i-1:i+1]),(source_duration-p['source'])/max(rates[i-1:i+1])))
+    margins.append(0.)
+    filters.append(f'[0:a]aresample=48000,asplit={count}'+''.join(f'[s{i}]' for i in range(count)))
+    for i,(a,b) in enumerate(zip(points,points[1:])):
+        rate = rates[i]; left, right = margins[i:i+2]
+        span = b['target']-a['target']+left+right
+        tempo = f'atempo={rate:.10f},' if abs(rate-1)>1e-7 else ''
+        frames = round(span*48000)
+        filters.append(f'[s{i}]atrim=start={a["source"]-left*rate:.8f}:end={b["source"]+right*rate:.8f},asetpts=PTS-STARTPTS,{tempo}asetpts=N/SR/TB,apad=whole_len={frames},atrim=end_sample={frames}[v{i}]')
+    current = 'v0'
+    for i in range(1,count):
+        joined = f'j{i}'
+        filters.append(f'[{current}][v{i}]acrossfade=d={2*margins[i]:.8f}:c1=tri:c2=tri[{joined}]')
+        current = joined
+    frames = round(duration*48000)
+    filters.append(f'[{current}]asetpts=N/SR/TB,adelay={round(points[0]["target"]*48000)}S:all=1,apad=whole_len={frames},atrim=end_sample={frames}[aligned]')
+    graph = output.parent/'voice-alignment.ffscript'
+    graph.write_text(';'.join(filters),encoding='utf-8')
+    ff(['-i',source,'-filter_complex_script',graph,'-map','[aligned]','-ar','48000','-ac','2','-c:a','pcm_s24le',output], 'Correzione del ritmo vocale',82)
 
 
 def process(app, job, d):
@@ -158,11 +258,22 @@ def process(app, job, d):
     report.update({'start': start, 'end': end, 'original_duration': duration, 'generated_duration': generated_duration})
     app.write_json(d/'alignment.json', report)
     fresh_stems = d/'generated-stems'; separate(generated/'audio.wav', fresh_stems, 'Estrazione del nuovo canto', 75)
-    delay = report['vocal_delay_seconds']; aligned = d/'new-singing.wav'
-    filters = f'atrim=start={max(0,delay):.8f},asetpts=PTS-STARTPTS'
-    if delay < 0: filters += f',adelay={round(-delay*48000)}S:all=1'
-    filters += f',apad,atrim=duration={duration:.8f}'
-    ff(['-i', fresh_stems/'vocals.wav', '-af', filters, '-ar', '48000', '-ac', '2', '-c:a', 'pcm_s24le', aligned], 'Allineamento del nuovo canto', 82)
+    aligned = d/'new-singing.wav'
+    render_aligned_voice(app,fresh_stems/'vocals.wav',aligned,report,duration,generated_duration,ff)
+    if 'anchors' in report:
+        verification = d/'alignment-check.wav'
+        inputs = ['-i',aligned]
+        for name in ('drums','bass','other'): inputs += ['-i',stems/(name+'.wav')]
+        filters = '[0:a]aformat=sample_rates=48000:channel_layouts=stereo[v];'
+        filters += ''.join(f'[{i}:a]atrim=start={start:.8f}:end={end:.8f},asetpts=PTS-STARTPTS,aformat=sample_rates=48000:channel_layouts=stereo[b{i}];' for i in range(1,4))
+        filters += '[v][b1][b2][b3]amix=inputs=4:duration=first:normalize=0'
+        ff(inputs+['-filter_complex',filters,'-ar','48000','-ac','2','-c:a','pcm_f32le',verification], 'Verifica del canto sulla base originale',83)
+        checked = transcribe(verification,d/'aligned-score',duration,'Ricontrollo del ritmo corretto',84)
+        verified = alignment(original_notes,checked,allow_phrases=False,verification=True)
+        if abs(verified['vocal_delay_seconds']) > .12:
+            raise ValueError('Il canto riallineato conserva un ritardo troppo grande: il mix è stato fermato.')
+        report['verified_timing'] = verified
+        app.write_json(d/'alignment.json',report)
     fresh_voice = aligned
     if req.get('clone_enabled'):
         reference = d/'reference.wav'
