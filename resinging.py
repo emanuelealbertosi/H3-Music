@@ -7,6 +7,7 @@ import execution
 import platform_runtime
 import transcription
 import cloning
+import mixing
 
 MAX_SECONDS = 150
 
@@ -170,6 +171,18 @@ def process(app, job, d):
         if abs(app.audio_info(converted)['duration']-duration) > .25:
             raise RuntimeError('La conversione ha cambiato la durata del canto: il mix è stato fermato.')
         fresh_voice = converted
+    # Match the replacement section itself: the retained vocals elsewhere in
+    # the song must not hide a quiet new voice from the full-song loudness check.
+    if req['mix']['automatic']:
+        reference_excerpt = d/'reference-singing.wav'
+        ff(['-ss', start, '-i', stems/'vocals.wav', '-t', duration, '-ar', '48000', '-ac', '2', reference_excerpt], 'Bilanciamento del tratto cantato', 88)
+        measure = lambda path: mixing.measure(app, path, d, lambda args: run(args, 'Bilanciamento del tratto cantato', 88))
+        gain = mixing.matching_gain(measure(reference_excerpt), measure(fresh_voice))
+        balanced = d/'balanced-singing.wav'
+        ff(['-i', fresh_voice, '-af', f'volume={gain:.8f}dB,apad,atrim=duration={duration:.8f}', '-ar', '48000', '-ac', '2', '-c:a', 'pcm_s24le', balanced], 'Bilanciamento del tratto cantato', 88)
+        fresh_voice = balanced
+        report['excerpt_voice_gain_db'] = gain
+        app.write_json(d/'alignment.json', report)
     # Preserve the original singing outside the selected range and every instrumental sample timing.
     parts = []
     if start > 0: parts.append(('original', 0, start))

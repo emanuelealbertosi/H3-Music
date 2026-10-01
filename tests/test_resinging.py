@@ -60,8 +60,8 @@ class ResingingTests(unittest.TestCase):
   for contents in ('0 1 nan','2 1 60','0 1 60.5','1 2 60\n0 1 61'):
    path.write_text(contents)
    with self.assertRaises(ValueError):resinging.read_notes(path)
- def exercise_pipeline(self, clone=False, cancelled=False, drift=False, truncated=False, backend='cpu'):
-  req=app.validate(self.req | {'clone_enabled': clone, 'clone_voice': 'sample' if clone else '', 'voice_steps': 50})
+ def exercise_pipeline(self, clone=False, cancelled=False, drift=False, truncated=False, backend='cpu', automatic=True):
+  req=app.validate(self.req | {'clone_enabled': clone, 'clone_voice': 'sample' if clone else '', 'voice_steps': 50, 'mix': {'automatic': automatic}})
   project=app.project_save({'request':req})
   with self.preflight(),patch.object(app,'ready',return_value={'ready':True}),patch.object(resinging.cloning,'preflight'):
    ident=app.enqueue({'project_id':project['id'],'request':req})['ids'][0]
@@ -90,7 +90,8 @@ class ResingingTests(unittest.TestCase):
   def mix(j,folder,voice,**kwargs):
    self.assertEqual(kwargs['source'],d/'stems');(folder/'audio.wav').write_bytes(b'final mix');return folder/'audio.wav'
   def info(path):return {'duration':200 if pathlib.Path(path).name in ('original.wav','audio.wav') and pathlib.Path(path).parent==d else 25}
-  with self.preflight(),patch.object(app,'run_job_process',side_effect=run),patch.object(app,'command_for',side_effect=command),patch.object(app,'settings',return_value={'backend':backend,'threads':2}),patch.object(app,'audio_info',side_effect=info),patch.object(app,'voice_sample',return_value=ref),patch.object(resinging.cloning,'convert_voice',side_effect=convert) as vc,patch.object(app,'mix_voice',side_effect=mix):
+  def loudness(a,path,folder,runner):return {'lufs':-14 if path.name=='reference-singing.wav' else -19,'peak_db':-3}
+  with self.preflight(),patch.object(app,'run_job_process',side_effect=run),patch.object(app,'command_for',side_effect=command),patch.object(app,'settings',return_value={'backend':backend,'threads':2}),patch.object(app,'audio_info',side_effect=info),patch.object(app,'voice_sample',return_value=ref),patch.object(resinging.cloning,'convert_voice',side_effect=convert) as vc,patch.object(app,'mix_voice',side_effect=mix),patch.object(resinging.mixing,'measure',side_effect=loudness) as measured:
    if cancelled:
     with self.assertRaises(app.JobCancelled):resinging.process(app,job,d)
    elif drift or truncated:
@@ -104,9 +105,12 @@ class ResingingTests(unittest.TestCase):
     placement=next(a for a in calls if str(d/'voce.wav')==a[-1]);filters=placement[placement.index('-filter_complex')+1]
     self.assertIn('start=0.00000000:end=20.00000000',filters);self.assertIn('start=45.00000000:end=200.00000000',filters)
     self.assertNotIn('rubberband',filters);self.assertNotIn('atempo',filters)
+    if automatic:self.assertEqual(result['alignment']['excerpt_voice_gain_db'],5);self.assertEqual(measured.call_count,2)
+    else:measured.assert_not_called();self.assertNotIn('excerpt_voice_gain_db',result['alignment'])
   self.assertEqual((app.DATA/'imports'/self.source/'source.wav').read_bytes(),b'original untouched')
  def test_cpu_pipeline_preserves_music_and_outside_vocals(self):self.exercise_pipeline()
  def test_cuda_pipeline_optional_clone(self):self.exercise_pipeline(clone=True,backend='cuda')
+ def test_manual_mix_does_not_force_new_voice_level(self):self.exercise_pipeline(automatic=False)
  def test_cancel_stops_next_stage(self):self.exercise_pipeline(cancelled=True)
  def test_bad_timing_never_publishes_mix(self):self.exercise_pipeline(drift=True)
  def test_truncation_never_publishes_mix(self):self.exercise_pipeline(truncated=True)
