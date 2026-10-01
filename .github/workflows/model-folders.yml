@@ -18,3 +18,5 @@ jobs:
           python-version: '3.12'
       - name: Verify model folders and platform compatibility
         run: python tests/model_folder_checks.py
+      - name: Verify singing on the original accompaniment
+        run: python tests/test_resinging.py

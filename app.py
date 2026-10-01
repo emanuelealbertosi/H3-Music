@@ -5,7 +5,7 @@ from pathlib import Path
 from contextlib import contextmanager
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT))
-import transcription, execution, cloning, mixing, remote_access, library_cleanup, platform_runtime, model_store
+import transcription, execution, cloning, mixing, remote_access, library_cleanup, platform_runtime, model_store, resinging
 APP=sys.modules[__name__]
 DATA=Path(os.environ.get('H3_MUSIC_DATA',str(ROOT/'data')))
 OUT=DATA/'outputs'
@@ -62,7 +62,7 @@ def validate(req):
  r['title']=r['title'][:120] or 'Senza titolo'
  for k,limit in [('style',4000),('lyrics',16000),('abc',50000),('notes',20000)]:
   if len(r[k])>limit: raise ValueError(k+': testo troppo lungo.')
- r['cot']=req.get('cot','full')
+ r['cot']='full' if req.get('base_enabled') is True else req.get('cot','full')
  if r['cot'] not in ('full','melody','off'): raise ValueError('Modalità spartito non valida.')
  if r['abc'] and r['cot']=='off': raise ValueError('Per usare lo spartito seleziona Melodia o Melodia e accordi.')
  seed=req.get('seed',831001)
@@ -78,6 +78,7 @@ def validate(req):
  r['options']={}
  r['mix']=mixing.validate(req.get('mix'))
  r['voice_steps']=cloning.voice_steps(req.get('voice_steps',30))
+ r.update(resinging.validate_fields(req))
  for k,v in opt.items():
   lo,hi,_=NUMBERS[k]; v=float(v)
   if not math.isfinite(v) or not lo<=v<=hi or k in INTEGER and int(v)!=v: raise ValueError('Valore non valido: '+k)
@@ -315,9 +316,12 @@ def _enqueue(data):
  pid=data.get('project_id'); p=db('SELECT * FROM projects WHERE id=?',(pid,),True)
  if not p: raise ValueError('Salva prima il progetto.')
  req=validate(data.get('request',json.loads(p['request'])))
- if not req['style'] or not req['lyrics']: raise ValueError('Inserisci stile musicale e testo.')
+ if not req['lyrics'] or not req['style'] and not req['base_enabled']: raise ValueError('Inserisci stile musicale e testo.')
  kind=data.get('kind','generate')
  if kind not in ('generate','plan'): raise ValueError('Operazione non valida.')
+ if req['base_enabled']:
+  if kind!='generate':raise ValueError('La base originale richiede Genera il brano.')
+  resinging.preflight(APP,req)
  if kind=='generate' and req['clone_enabled']:cloning.preflight(APP,req['clone_voice'])
  if kind=='plan' and req['cot']=='off': raise ValueError('La composizione richiede Melodia o Melodia e accordi.')
  count=int(data.get('count',1))
@@ -505,6 +509,7 @@ def worker():
   try:
    if job['kind']=='remix':result=mixing.process(APP,job,d)
    elif job['kind'] in ('clone','instrumental'):result=cloning.process(APP,job,d)
+   elif job['kind']=='generate' and job['request'].get('base_enabled'):result=resinging.process(APP,job,d)
    elif job['kind']=='voice':
     cloning.convert_voice(APP,job,d,OUT/job['request']['source_id']/'vocals.wav',voice_sample(job['request']['voice']),d/'voce.wav')
     result=finish_artifacts(job,d)
@@ -643,7 +648,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
      cuda=json.loads(run_capture([str(platform_runtime.python(ROOT)),str(ROOT/'scripts/gpu_info.py')],15).stdout or '{}') if platform_runtime.windows() else {}
     except Exception: cuda={}
     motore={'cuda':'CUDA','metal':'Metal','cpu':'CPU'}[settings()['backend']]
-    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.6.1','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
+    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.7.0','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
    if path=='/api/voice-audio':
     ref=voice_sample(urllib.parse.parse_qs(parsed.query).get('name',[''])[0])
     if ref is None:raise ValueError('Campione vocale non trovato.')

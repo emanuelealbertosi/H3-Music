@@ -38,6 +38,7 @@ function renderStudioResult(job){
  player.dataset.job=job.id;
  $('#studio-result-title').textContent=job.request.title;
  player.innerHTML=job.kind==='generate'?`<audio id="studio-result-audio" controls preload="metadata" aria-label="Ascolta il brano creato" src="/files/${encodeURIComponent(job.id)}/audio.wav"></audio>`:'<p class="note green">Spartito pronto. Usa lo spartito del brano per modificarlo e generare la canzone.</p>';
+ $('#studio-result-score').disabled=!!draft.base_enabled;
  $('#studio-result-generate').textContent=job.kind==='plan'?'Genera il brano':'Genera nuova versione';
  $('#studio-result-warning').textContent=job.result.audio_truncated||job.result.abc_truncated?'Limite token raggiunto: controlla il finale prima di creare una nuova versione.':'';
 }

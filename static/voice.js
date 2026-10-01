@@ -53,12 +53,12 @@ async function bindVoicePicker(prefix,selected,onChange){
  await load(selected||'');
 }
 function studioVoiceHTML(){
- return `<div class="card"><div class="card-title"><h2>La voce del brano</h2></div><label class="check"><input id="clone-enabled" type="checkbox" ${draft.clone_enabled?'checked':''}> Clona · usa la mia voce</label><p class="hint">Genera il brano e applica automaticamente il timbro del campione scelto, conservando la base generata.</p><div id="studio-voice-fields" style="display:${draft.clone_enabled?'block':'none'}">${voicePickerHTML('studio',draft.clone_voice||'')}${voiceQualityHTML('studio',draft.voice_steps)}${mixControlsHTML('studio-mix',draft.mix)}</div><button class="text-btn" id="existing-song">Vuoi cambiare la voce di una canzone esistente? →</button></div>`;
+ return `<div class="card"><div class="card-title"><h2>La voce del brano</h2></div><label class="check"><input id="clone-enabled" type="checkbox" ${draft.clone_enabled?'checked':''}> Clona · usa la mia voce</label><p class="hint">Genera il brano e applica automaticamente il timbro del campione scelto, conservando la base del brano.</p><div id="studio-voice-fields" style="display:${draft.clone_enabled?'block':'none'}">${voicePickerHTML('studio',draft.clone_voice||'')}${voiceQualityHTML('studio',draft.voice_steps)}</div><div id="studio-mix-fields" style="display:${draft.clone_enabled||draft.base_enabled?'block':'none'}">${mixControlsHTML('studio-mix',draft.mix)}</div><button class="text-btn" id="existing-song">Vuoi cambiare la voce di una canzone esistente? →</button></div>`;
 }
 function bindStudioVoice(){
  $('#studio-quality').onchange=e=>{draft.voice_steps=+e.target.value;persist()};
  bindMixControls('studio-mix',draft.mix,value=>{draft.mix=value;persist()});
- $('#clone-enabled').onchange=()=>{draft.clone_enabled=$('#clone-enabled').checked;$('#studio-voice-fields').style.display=draft.clone_enabled?'block':'none';persist()};
+ $('#clone-enabled').onchange=()=>{draft.clone_enabled=$('#clone-enabled').checked;$('#studio-voice-fields').style.display=draft.clone_enabled?'block':'none';persist();updateOriginalBaseUI()};
  $('#existing-song').onclick=()=>show('voice');
  bindVoicePicker('studio',draft.clone_voice||'',value=>{draft.clone_voice=value;persist()}).catch(e=>toast(e.message,true));
 }

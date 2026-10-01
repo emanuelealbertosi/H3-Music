@@ -55,7 +55,7 @@ def main():
                 time.sleep(.1)
             if not url: raise RuntimeError('Fixture server timed out')
             env = dict(os.environ, H3_TEST_URL=url, H3_MODEL_DESTINATION=str(base / 'Modelli è musica'))
-            for script in ('ui_execution.cjs', 'ui_model_location.cjs', 'ui_studio_result.cjs', 'ui_library_cleanup.cjs'):
+            for script in ('ui_execution.cjs', 'ui_model_location.cjs', 'ui_studio_result.cjs', 'ui_library_cleanup.cjs', 'ui_original_base.cjs'):
                 subprocess.run([shutil.which('node'), str(ROOT / 'tests' / script)], env=env, check=True)
         finally:
             if url:
