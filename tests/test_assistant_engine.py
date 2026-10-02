@@ -4,6 +4,8 @@ import sys
 import threading
 import unittest
 import tempfile
+import base64
+import subprocess
 from unittest.mock import Mock,patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import app,assistant_engine
@@ -32,6 +34,16 @@ class AssistantTests(unittest.TestCase):
    self.assertEqual(assistant_engine.choose_model(fake),{'path':str(model.resolve())})
    fake.run_capture.return_value.stdout=str(model.with_suffix('.txt'))
    with self.assertRaisesRegex(ValueError,'gguf'):assistant_engine.choose_model(fake)
+ @unittest.skipUnless(app.platform_runtime.windows(),'Windows PowerShell parser required')
+ def test_windows_picker_script_parses_with_real_powershell(self):
+  fake=Mock();fake.platform_runtime.windows.return_value=True
+  fake.run_capture.return_value=Mock(returncode=0,stdout='',stderr='')
+  assistant_engine.choose_model(fake)
+  script=fake.run_capture.call_args.args[0][-1]
+  encoded=base64.b64encode(script.encode('utf-16le')).decode()
+  probe="$source=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('"+encoded+"')); $tokens=$null; $parseErrors=$null; [void][System.Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$parseErrors); $parseErrors | ForEach-Object {$_.Message}; if($parseErrors.Count){exit 1}"
+  response=subprocess.run(['powershell','-NoProfile','-Command',probe],capture_output=True,text=True,timeout=15,creationflags=app.HIDDEN)
+  self.assertEqual(response.returncode,0,response.stdout+response.stderr)
  def test_macos_model_picker_cancellation_is_not_an_error(self):
   fake=Mock();fake.platform_runtime.windows.return_value=False;fake.platform_runtime.macos.return_value=True
   fake.run_capture.return_value=Mock(returncode=1,stdout='',stderr='User canceled. (-128)')

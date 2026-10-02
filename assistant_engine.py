@@ -51,7 +51,7 @@ def model_id(app):return 'h3-assistant'
 def choose_model(app):
  """Choose an existing file on the computer running H3, without copying it."""
  if app.platform_runtime.windows():
-  script="Add-Type -AssemblyName System.Windows.Forms; $picker=New-Object System.Windows.Forms.OpenFileDialog; $picker.Title='Scegli il modello GGUF dell’assistente'; $picker.Filter='Modelli GGUF (*.gguf)|*.gguf'; $picker.CheckFileExists=$true; $picker.Multiselect=$false; $picker.RestoreDirectory=$true; if($picker.ShowDialog() -eq 'OK'){[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; [Console]::Write($picker.FileName)}"
+  script="Add-Type -AssemblyName System.Windows.Forms; $picker=New-Object System.Windows.Forms.OpenFileDialog; $picker.Title='Scegli un modello GGUF per H3-Music'; $picker.Filter='Modelli GGUF (*.gguf)|*.gguf'; $picker.CheckFileExists=$true; $picker.Multiselect=$false; $picker.RestoreDirectory=$true; if($picker.ShowDialog() -eq 'OK'){[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; [Console]::Write($picker.FileName)}"
   response=app.run_capture(['powershell','-NoProfile','-STA','-Command',script],300)
  elif app.platform_runtime.macos():
   response=app.run_capture(['osascript','-e','POSIX path of (choose file with prompt "Scegli un modello GGUF per l’assistente H3-Music")'],300)

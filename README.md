@@ -8,7 +8,7 @@ in un popup fino alla chiusura esplicita. Corretto anche l’allineamento
 quando il canto generato inizia prima della base. I quattro LoRA italiani
 CNZN restano opzionali. [Uso e requisiti](docs/Italiano-e-metrica.md).
 
-**Mac:** disponibile una [anteprima scaricabile da GitHub](https://github.com/emanuelealbertosi/H3-Music/releases/tag/v1.9.0-macos-preview.1) per Apple Silicon e Intel. Richiede macOS 15+ e Homebrew; CPU predefinita, Metal facoltativo. [Installazione e limiti della versione Mac](docs/Mac.md).
+**Mac:** disponibile una [anteprima scaricabile da GitHub](https://github.com/emanuelealbertosi/H3-Music/releases/tag/v1.9.1-macos-preview.1) per Apple Silicon e Intel. Richiede macOS 15+ e Homebrew; CPU predefinita, Metal facoltativo. [Installazione e limiti della versione Mac](docs/Mac.md).
 
 Studio musicale locale per Windows, basato su **YuE2-3B (Q4, Q8 e BF16)** e **audio.cpp**. Interfaccia in italiano, con gli stessi colori avorio e verde petrolio e i font Manrope/Cormorant delle altre app H3. In questa installazione il motore usa la **GPU CUDA**; il motore precompilato distribuito nel repository per il clone su altri PC usa la **CPU**.
 
