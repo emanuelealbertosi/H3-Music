@@ -596,7 +596,8 @@ def assist(data):
   if not models: raise ValueError('Nessun modello caricato in LM Studio.')
   model=models[0]['id']
  system='You are a music composer assisting H3-Music. Return ONLY a valid JSON object with title, style, lyrics, abc. Write the style prompt in English. Follow the user language for lyrics. Preserve fields the user did not ask to change. ABC is optional; do not invent an audio transcription or claim you checked syllable alignment without a score. For score edits preserve notes and lyric order unless the user requests changing them. Never claim you generated audio. '+lyric_meter.TAG_RULES
- res=llm('/chat/completions',{'model':model,'messages':[{'role':'system','content':system},{'role':'user','content':jdump({'current':req,'instruction':instruction})}],'temperature':.7,'max_tokens':6000,'stream':False})
+ current={k:req[k] for k in ('title','style','lyrics','abc')} if assistant_api.active(APP) or settings()['llm_provider']=='api' else req
+ res=llm('/chat/completions',{'model':model,'messages':[{'role':'system','content':system},{'role':'user','content':jdump({'current':current,'instruction':instruction})}],'temperature':.7,'max_tokens':6000,'stream':False})
  text=res['choices'][0]['message']['content']; text=re.sub(r'<think>.*?</think>','',text,flags=re.S).strip(); text=re.sub(r'^```(?:json)?\s*|\s*```$','',text)
  try: suggestion=json.loads(text)
  except json.JSONDecodeError: raise ValueError('L’assistente non ha restituito JSON valido. Riprova con una richiesta più breve.')

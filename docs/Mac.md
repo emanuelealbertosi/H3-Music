@@ -51,7 +51,7 @@ Il workflow GitHub compila il motore nativo per entrambe le architetture dalla r
 
 I controlli automatici verificano il caricamento del motore e dei runtime Python, l'avvio del servizio, il database, il salvataggio dei progetti, FFmpeg e le preferenze CPU. **Non equivalgono a un collaudo completo di brani generati, clonazione o qualità sonora su ogni GPU Mac**. Metal va provato sul Mac dell'utilizzatore; in caso di problemi seleziona CPU e conserva il log del lavoro. Questa è perciò una prerelease sperimentale.
 
-LM Studio e Tailscale restano facoltativi. Su Mac l'assistente usa lo stesso indirizzo locale configurabile. Per Tailscale, con il relativo comando disponibile nel PATH, puoi eseguire `runtime/python/bin/python scripts/tailscale_access.py` per attivare l'accesso e lo stesso comando seguito da `--disable` per disattivarlo; viene mantenuto l'accesso privato della tailnet.
+LM Studio e Tailscale restano facoltativi. Su Mac l'assistente può usare il motore integrato, LM Studio locale oppure **API online**, configurabili in Sistema come su Windows. Le API non richiedono l'installazione dell'assistente locale; inviano al servizio il contesto testuale necessario e possono consumare credito. [Configurazione e chiavi](Italiano-e-metrica.md#assistente-tramite-api-online). Per Tailscale, con il relativo comando disponibile nel PATH, puoi eseguire `runtime/python/bin/python scripts/tailscale_access.py` per attivare l'accesso e lo stesso comando seguito da `--disable` per disattivarlo; viene mantenuto l'accesso privato della tailnet.
 
 ## Cartella dei modelli
 

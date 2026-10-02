@@ -79,8 +79,10 @@ class ApiTests(unittest.TestCase):
   self.assertEqual(self.calls,[])
   self.assertFalse(lyric_meter.reasoning_off_available(app,'chosen'))
  def test_assistant_and_meter_use_api_and_preserve_original_fields_and_tags(self):
-  result=app.assist({'request':{'lyrics':'[Verse]\nWords','abc':'K:C\nC |','style':'Italian pop'},'instruction':'Adatta il testo'})
+  result=app.assist({'request':{'lyrics':'[Verse]\nWords','abc':'K:C\nC |','style':'Italian pop','notes':'private production notes','clone_voice':'private-voice-reference'},'instruction':'Adatta il testo'})
   self.assertEqual(result['request']['lyrics'],'[Verse]\nCanto');self.assertEqual(result['request']['abc'],'K:C\nC |')
+  current=json.loads(self.calls[-1][2]['messages'][1]['content'])['current']
+  self.assertEqual(set(current),{'title','style','lyrics','abc'});self.assertEqual(result['request']['notes'],'private production notes')
   self.reply=lambda path,body:(200,{'choices':[{'message':{'content':json.dumps({'lines':[{'id':1,'section':'Verse','text':'Canto'}]})}}]})
   request={'title':'Originale','lyrics':'[Verse]\nWords','style':'Italian pop','abc':'K:C\nC |'}
   phrases=[{'notes':[{'start':0,'duration':.25},{'start':.25,'duration':.25}]}]
