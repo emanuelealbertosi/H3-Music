@@ -19,7 +19,7 @@ MODEL_OPERATION={'status':'idle'}
 LORA_OPERATION={'status':'idle'}
 ENGINE=platform_runtime.binary(ROOT,'audiocpp_cli',engine=True)
 FFMPEG=platform_runtime.binary(ROOT,'ffmpeg')
-DEFAULTS={'backend':'cpu','threads':8,'llm_url':'http://127.0.0.1:1234/v1','llm_model':'','llm_provider':'lmstudio','llm_internal_model':'','llm_device':'cpu','llm_context':16384,'llm_api_url':'https://api.openai.com/v1','llm_api_model':'','llm_api_format':'auto','paused':False,'model':'q8'}
+DEFAULTS={'backend':'cpu','threads':8,'llm_url':'http://127.0.0.1:1234/v1','llm_model':'','llm_provider':'lmstudio','llm_internal_model':'','llm_device':'cpu','llm_context':16384,'llm_retries':3,'llm_api_url':'https://api.openai.com/v1','llm_api_model':'','llm_api_format':'auto','paused':False,'model':'q8'}
 MUSIC_MODELS={'q4':('yue2-3b-q4_0.gguf',2665632320,'Q4'), 'q8':('yue2-3b-q8_0.gguf',4264186432,'Q8'), 'bf16':('yue2-3b-bf16.gguf',7261475392,'BF16')}
 NUMBERS={'cfg_scale':(0,20,1.0),'num_inference_steps':(1,128,32),'abc_temperature':(0,5,.7),'abc_top_p':(0,1,.9),'abc_top_k':(1,1000,30),'abc_repetition_penalty':(.01,10,1.005),'abc_penalty_window':(1,10000,100),'abc_min_tokens':(0,4096,32),'abc_max_tokens':(32,8192,4096),'semantic_temperature':(0,5,1),'semantic_top_p':(0,1,.95),'semantic_top_k':(1,1000,100),'semantic_repetition_penalty':(.01,10,1.2),'semantic_penalty_window':(1,10000,50),'semantic_min_tokens':(0,9000,200),'semantic_max_tokens':(200,12000,9000)}
 INTEGER={'num_inference_steps'}|{k for k in NUMBERS if any(s in k for s in ('top_k','window','tokens'))}
@@ -588,7 +588,7 @@ def llm(path,payload=None,timeout=None):
  with urllib.request.urlopen(req,timeout=timeout or (180 if payload else 5)) as response: return json.load(response)
 
 def assist(data):
- req=validate(data.get('request',{})); instruction=str(data.get('instruction','')).strip()[:8000]
+ req=validate(data.get('request',{})); instruction=str(data.get('instruction','')).strip()[:8000];retries=lyric_meter.retry_count(APP,data)
  if not instruction: raise ValueError('Descrivi la modifica desiderata.')
  model=assistant_engine.selected_model(APP)
  if not model:
@@ -597,14 +597,20 @@ def assist(data):
   model=models[0]['id']
  system='You are a music composer assisting H3-Music. Return ONLY a valid JSON object with title, style, lyrics, abc. Write the style prompt in English. Follow the user language for lyrics. Preserve fields the user did not ask to change. ABC is optional; do not invent an audio transcription or claim you checked syllable alignment without a score. For score edits preserve notes and lyric order unless the user requests changing them. Never claim you generated audio. When the instruction asks to improve the text/lyrics, actively revise the lyrics field: repair grammar and unnatural sentences and return the improved lyrics, even without detailed editorial instructions. Preserve meaning, not defective wording. Retain the original content and verse length as far as the requested change allows. Do not shorten the song by default. If the user only requests a style, title or score edit, leave lyrics unchanged. '+lyric_meter.LYRIC_WRITING_RULES+'\n'+lyric_meter.TAG_RULES
  current={k:req[k] for k in ('title','style','lyrics','abc')} if assistant_api.active(APP) or settings()['llm_provider']=='api' else req
- res=llm('/chat/completions',{'model':model,'messages':[{'role':'system','content':system},{'role':'user','content':jdump({'current':current,'instruction':instruction})}],'temperature':.7,'max_tokens':6000,'stream':False})
- text=res['choices'][0]['message']['content']; text=re.sub(r'<think>.*?</think>','',text,flags=re.S).strip(); text=re.sub(r'^```(?:json)?\s*|\s*```$','',text)
- try: suggestion=json.loads(text)
- except json.JSONDecodeError: raise ValueError('L’assistente non ha restituito JSON valido. Riprova con una richiesta più breve.')
- if 'lyrics' in suggestion and lyric_meter.lyric_tags(req['lyrics']) and lyric_meter.lyric_tags(str(suggestion['lyrics']))!=lyric_meter.lyric_tags(req['lyrics']):raise ValueError('L’assistente ha rimosso o modificato i TAG originali. La proposta non è stata applicata: riprova chiedendo di conservarli tutti.')
- merged=validate(req|{k:suggestion[k] for k in ('title','style','lyrics','abc') if k in suggestion})
+ messages=[{'role':'system','content':system},{'role':'user','content':jdump({'current':current,'instruction':instruction})}]
+ def generate(messages):
+  return llm('/chat/completions',{'model':model,'messages':messages,'temperature':.7,'max_tokens':6000,'stream':False})['choices'][0]['message']['content']
+ def parse(text):
+  try:
+   text=re.sub(r'<think>.*?</think>','',text,flags=re.S).strip();text=re.sub(r'^```(?:json)?\s*|\s*```$','',text)
+   suggestion=json.loads(text)
+  except (ValueError,TypeError):raise ValueError('L’assistente non ha restituito JSON valido.')
+  if not isinstance(suggestion,dict) or not any(k in suggestion for k in ('title','style','lyrics','abc')):raise ValueError('L’assistente non ha restituito una proposta valida.')
+  if 'lyrics' in suggestion and lyric_meter.lyric_tags(req['lyrics']) and lyric_meter.lyric_tags(str(suggestion['lyrics']))!=lyric_meter.lyric_tags(req['lyrics']):raise ValueError('L’assistente ha rimosso o modificato i TAG originali.')
+  return validate(req|{k:suggestion[k] for k in ('title','style','lyrics','abc') if k in suggestion})
+ merged=lyric_meter.checked_output(generate,parse,messages,retries,'Correggi la proposta mantenendo i campi non richiesti e questi TAG nello stesso ordine: '+jdump(lyric_meter.lyric_tags(req['lyrics']))+'. Restituisci SOLO JSON valido con title, style, lyrics, abc.')[0]
  if merged['lyrics'] and merged['lyrics']!=req['lyrics']:
-  merged['lyrics']=lyric_meter.polish_lyrics(APP,model,req['lyrics'],merged['lyrics'],instruction,merged['style'])
+  merged['lyrics']=lyric_meter.polish_lyrics(APP,model,req['lyrics'],merged['lyrics'],instruction,merged['style'],retries)
  return {'request':validate(merged)}
 
 def assistant_operation(operation,data):
@@ -804,6 +810,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     if s['llm_device'] not in platform_runtime.backends():raise ValueError('Dispositivo dell’assistente non valido.')
     s['llm_internal_model']=str(s['llm_internal_model']).strip()[:2000];s['llm_context']=int(s['llm_context'])
     if not 4096<=s['llm_context']<=65536:raise ValueError('Contesto dell’assistente fuori intervallo.')
+    s['llm_retries']=lyric_meter.valid_retries(s['llm_retries'])
     assistant_api.save_preferences(APP,s,data); WAKE.set(); result={'ok':True}
    elif path=='/api/assist':
     result=assistant_operation('assist',data)

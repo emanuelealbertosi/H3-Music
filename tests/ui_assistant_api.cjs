@@ -1,14 +1,18 @@
 const {chromium}=require('playwright'),assert=require('node:assert/strict'),http=require('node:http');
 (async()=>{
- const calls=[];let authFailure=false;
+ const calls=[];let authFailure=false,planFailures=0,planCalls=0;
  const provider=http.createServer(async(req,res)=>{
   let text='';for await(const chunk of req)text+=chunk;
   const body=text?JSON.parse(text):null;calls.push({path:req.url,auth:req.headers.authorization,body});
   res.setHeader('Content-Type','application/json');
   if(authFailure){res.statusCode=401;res.end(JSON.stringify({error:{message:'Invalid credentials'}}));return}
   if(req.url==='/v1/models'){res.end(JSON.stringify({data:[{id:'fake-chat'},{id:'other-chat'}]}));return}
-  const meter=body.messages.find(m=>m.content.includes('"phrases":'));
-  const content=meter?JSON.stringify({lines:[{id:1,section:'Verse',text:'Canto'}]}):JSON.stringify({lyrics:'[Verse]\nCanto'});
+  const data=JSON.parse(body.messages[1].content);let content;
+  if(data.required_section_order){
+   planCalls++;const wrong=planFailures-->0;
+   content=JSON.stringify({sections:[{start:1,section:wrong?'Chorus':'Verse'},{start:3,section:wrong?'Verse':'Chorus'}]});
+  }else if(data.phrases){content=JSON.stringify({lines:data.phrases.map(p=>({id:p.id,section:p.section,text:'Canto'}))})}
+  else content=JSON.stringify({lyrics:'[Verse]\nCanto'});
   res.end(JSON.stringify({choices:[{message:{content},finish_reason:'stop'}]}));
  });
  await new Promise(r=>provider.listen(0,'127.0.0.1',r));
@@ -18,7 +22,7 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),http
   const p=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];p.on('pageerror',e=>errors.push(e.message));
   const base=process.env.H3_TEST_URL;
   await p.route('**/api/system',route=>route.fulfill({json:{ready:true,backend:'cpu',backends:['cpu','cuda'],memory:{},cuda:{},gpu:'',version:'test',transcription:{}}}));
-  await p.goto(base+'/#system');await p.locator('#s-provider').selectOption('api');
+  await p.goto(base+'/#system');await p.locator('#s-provider').selectOption('api');assert.equal(await p.locator('#s-retries').inputValue(),'3');
   assert.equal(await p.locator('#api-assistant').isVisible(),true);assert.equal(await p.locator('#external-assistant').isVisible(),false);assert.equal(await p.locator('#internal-assistant').isVisible(),false);
   await p.locator('#s-api-preset').selectOption('deepseek');assert.equal(await p.locator('#s-api-url').inputValue(),'https://api.deepseek.com');
   await p.locator('#s-api-preset').selectOption('openrouter');assert.equal(await p.locator('#s-api-url').inputValue(),'https://openrouter.ai/api/v1');
@@ -28,15 +32,24 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),http
   const publicState=await p.request.get(base+'/api/state').then(r=>r.json());
   assert.equal(publicState.settings.llm_api_key_saved,true);assert.equal(JSON.stringify(publicState).includes('fake-ui-secret'),false);
   assert.equal(publicState.settings.backend,'cpu');assert.equal(publicState.settings.model,'q4');
-  await p.locator('#s-api-model').fill('fake-chat');await p.locator('#preferences').click();
+  await p.locator('#s-api-model').fill('fake-chat');await p.locator('#s-retries').selectOption('2');await p.locator('#preferences').click();
   await p.waitForFunction(()=>document.querySelector('#toast').textContent==='Preferenze salvate');
-  await p.reload();await p.locator('#s-api-model').waitFor();assert.equal(await p.locator('#s-api-model').inputValue(),'fake-chat');assert.equal(await p.locator('#s-api-key').inputValue(),'');
+  await p.reload();await p.locator('#s-api-model').waitFor();assert.equal(await p.locator('#s-retries').inputValue(),'2');assert.equal(await p.locator('#s-api-model').inputValue(),'fake-chat');assert.equal(await p.locator('#s-api-key').inputValue(),'');
   await p.locator('[data-page="studio"]').click();await p.locator('#lyrics').fill('[Verse]\nWords');
   await p.locator('#abc').evaluate(e=>{e.value='X:1\nM:4/4\nL:1/8\nK:C\nC D |';e.dispatchEvent(new Event('input',{bubbles:true}))});
-  await p.locator('#assist').click();await p.locator('#instruction').fill('Adatta queste parole');await p.locator('#ai-run').click();await p.locator('#ai-apply').waitFor();
+  await p.locator('#assist').click();assert.equal(await p.locator('#ai-retries').inputValue(),'2');await p.locator('#instruction').fill('Adatta queste parole');await p.locator('#ai-run').click();await p.locator('#ai-apply').waitFor();
   assert.equal(await p.locator('#lyrics').inputValue(),'[Verse]\nWords');await p.locator('#ai-apply').click();assert.equal(await p.locator('#lyrics').inputValue(),'[Verse]\nCanto');
   await p.locator('#lyrics-meter').click();await p.locator('#meter-mode').waitFor();assert.match(await p.locator('#modal-content').innerText(),/servizio API/);await p.locator('#meter-run').click();await p.locator('#meter-apply').waitFor();await p.locator('#modal .close').click();
   assert.equal(calls.filter(c=>c.path==='/v1/chat/completions').length,4);assert.ok(calls.every(c=>c.auth==='Bearer fake-ui-secret'));
+  // The selected budget repairs section order without restarting valid work.
+  await p.locator('#lyrics').fill('[Verse]\nWords\nWords\n[Chorus]\nWords\nWords');
+  await p.locator('#abc').evaluate(e=>{e.value='X:1\nM:4/4\nL:1/8\nK:C\nC D z8 | C D z8 | C D z8 | C D z8 |';e.dispatchEvent(new Event('input',{bubbles:true}))});
+  planFailures=2;planCalls=0;await p.locator('#lyrics-meter').click();assert.equal(await p.locator('#meter-retries').inputValue(),'2');await p.locator('#meter-run').click();await p.locator('#meter-apply').waitFor();
+  assert.equal(planCalls,3);assert.equal(await p.locator('#modal-error').count(),0);assert.match(await p.locator('#meter-proposal').inputValue(),/\[Verse\][\s\S]*\[Chorus\]/);await p.locator('#modal .close').click();
+  planFailures=10;planCalls=0;await p.locator('#lyrics-meter').click();await p.locator('#meter-retries').selectOption('1');await p.locator('#meter-run').click();await p.locator('#error-popup').waitFor();
+  assert.equal(planCalls,2);assert.match(await p.locator('#error-popup-message').innerText(),/ordine delle sezioni/);assert.match(await p.locator('#error-popup-message').innerText(),/Tentativi esauriti \(2\)/);await p.locator('#error-popup-dismiss').click();await p.locator('#modal .close').click();
+  assert.equal((await p.request.get(base+'/api/state').then(r=>r.json())).settings.llm_retries,2);
+  await p.locator('#lyrics').fill('[Verse]\nCanto');await p.locator('#abc').evaluate(e=>{e.value='X:1\nM:4/4\nL:1/8\nK:C\nC D |';e.dispatchEvent(new Event('input',{bubbles:true}))});
   // Failure stays in the dialog's top layer after the background toast expires.
   authFailure=true;await p.locator('#lyrics-meter').click();await p.locator('#meter-mode').waitFor();await p.locator('#meter-run').click();
   await p.locator('#modal-error').waitFor();assert.match(await p.locator('#modal-error').innerText(),/Chiave API/);

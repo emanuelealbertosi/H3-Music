@@ -104,6 +104,43 @@ class MeterTests(unittest.TestCase):
  def test_final_refrain_is_not_reused_before_it_has_finished(self):
   lines=[{'section':'Chorus','text':'Un verso'}]
   self.assertEqual(lyric_meter.chorus_reference(lines,[{'start':1,'section':'Chorus'}],3),[])
+ def test_section_order_recovers_on_third_attempt_with_error_feedback(self):
+  phrases=lyric_meter.validate_phrases([{'notes':[{'start':n,'duration':.25}]} for n in range(4)])
+  req=app.validate({'lyrics':'[Verse]\nWords\n[Chorus]\nRefrain'})
+  wrong=json.dumps({'sections':[{'start':1,'section':'Chorus'},{'start':3,'section':'Verse'}]})
+  correct=json.dumps({'sections':[{'start':1,'section':'Verse'},{'start':3,'section':'Chorus'}]})
+  with patch.object(lyric_meter,'complete',side_effect=[wrong,wrong,correct]) as call:
+   plan,_=lyric_meter.section_plan(app,'test',phrases,req,'adapt','',False,2)
+  self.assertEqual(plan,['Verse','Verse','Chorus','Chorus']);self.assertEqual(call.call_count,3)
+  messages=call.call_args.args[2]
+  self.assertEqual(len(messages),4);self.assertIn('ordine delle sezioni',messages[-1]['content']);self.assertIn(app.jdump(['Verse','Chorus']),messages[-1]['content'])
+ def test_default_retry_budget_is_three_repairs_and_zero_disables_them(self):
+  phrases=lyric_meter.validate_phrases([{'notes':[{'start':n,'duration':.25}]} for n in range(2)])
+  req=app.validate({'lyrics':'[Verse]\nWords\n[Chorus]\nRefrain'})
+  wrong=json.dumps({'sections':[{'start':1,'section':'Chorus'},{'start':2,'section':'Verse'}]})
+  for selected,count in ((None,4),(0,1),(1,2)):
+   with self.subTest(retries=selected),patch.object(lyric_meter,'complete',return_value=wrong) as call:
+    with self.assertRaisesRegex(ValueError,r'Tentativi esauriti \('+str(count)+r'\)'):lyric_meter.section_plan(app,'test',phrases,req,'adapt','',False,selected)
+    self.assertEqual(call.call_count,count)
+ def test_invalid_retry_selection_and_service_failures_do_not_call_again(self):
+  for value in (-1,11,True,2.5,'3',None):
+   with self.subTest(value=value),patch.object(app,'llm') as call,self.assertRaisesRegex(ValueError,'ripetizioni automatiche'):
+    lyric_meter.adapt(app,{'request':{'lyrics':'Words'},'phrases':self.phrases(),'retries':value})
+   call.assert_not_called()
+  with patch.object(app,'settings',return_value=app.DEFAULTS|{'llm_model':'test'}),patch.object(app,'llm',side_effect=ValueError('Chiave API non valida')) as call:
+   with self.assertRaisesRegex(ValueError,'Chiave API'):lyric_meter.adapt(app,{'request':{'lyrics':'Words'},'phrases':self.phrases(),'retries':3})
+   self.assertEqual(call.call_count,1)
+ def test_later_chunk_repairs_do_not_regenerate_successful_earlier_chunk(self):
+  phrases=[{'notes':[{'start':n*.5,'duration':.25},{'start':n*.5+.25,'duration':.25}]} for n in range(13)]
+  visits=[]
+  def respond(path,payload,**kwargs):
+   data=json.loads(payload['messages'][1]['content']);first=data['phrases'][0]['id'];visits.append(first)
+   rows=[{'id':p['id'],'section':p['section'],'text':'Canto'} for p in data['phrases']]
+   if first==13 and visits.count(13)==1:rows[0]['section']='Chorus'
+   return {'choices':[{'message':{'content':json.dumps({'lines':rows})}}]}
+  with patch.object(app,'settings',return_value=app.DEFAULTS|{'llm_model':'test'}),patch.object(app,'llm',side_effect=respond):
+   result=lyric_meter.adapt(app,{'request':{'lyrics':'[Verse]\nWords'},'phrases':phrases,'retries':3})
+  self.assertEqual(visits,[1,1,13,13]);self.assertEqual(len(result['lines']),13)
  def test_context_does_not_fabricate_transcription(self):
   with self.assertRaisesRegex(ValueError,'spartito'):app.lyric_context({'request':{}})
   self.assertEqual(app.lyric_context({'request':{'abc':'K:C\nC |'}})['abc'],'K:C\nC |')

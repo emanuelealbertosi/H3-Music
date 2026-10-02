@@ -96,8 +96,20 @@ class ApiTests(unittest.TestCase):
    editorial='draft_lyrics' in body['messages'][1]['content']
    return 200,{'choices':[{'message':{'content':json.dumps({'lyrics':'[Chorus]\nCanto' if editorial else '[Verse]\nCanto'})}}]}
   self.reply=respond;before=app.settings();request={'lyrics':'[Verse]\nWords','abc':'K:C\nC |'}
-  with self.assertRaisesRegex(ValueError,'revisione.*TAG'):app.assistant_operation('assist',{'request':request,'instruction':'Migliora il testo'})
+  with self.assertRaisesRegex(ValueError,'revisione.*TAG'):app.assistant_operation('assist',{'request':request,'instruction':'Migliora il testo','retries':0})
   self.assertEqual(request['lyrics'],'[Verse]\nWords');self.assertEqual(app.settings(),before);self.assertEqual(len(self.calls),2)
+ def test_general_assistant_repairs_tags_with_selected_budget(self):
+  failures=2
+  def respond(path,body):
+   nonlocal failures
+   editorial='draft_lyrics' in body['messages'][1]['content']
+   wrong=not editorial and failures>0
+   if wrong:failures-=1
+   return 200,{'choices':[{'message':{'content':json.dumps({'lyrics':'[Chorus]\nCanto' if wrong else '[Verse]\nCanto'})}}]}
+  self.reply=respond
+  result=app.assist({'request':{'lyrics':'[Verse]\nWords'},'instruction':'Migliora il testo','retries':2})
+  self.assertEqual(result['request']['lyrics'],'[Verse]\nCanto');self.assertEqual(len(self.calls),4)
+  self.assertIn('TAG originali',self.calls[2][2]['messages'][-1]['content'])
  def test_unsupported_schema_falls_back_only_after_rejection_and_keeps_schema_in_prompt(self):
   self.reply=lambda path,body:(400,{'error':{'message':'response_format json_schema is not supported'}}) if body.get('response_format',{}).get('type')=='json_schema' else (200,{'choices':[{'message':{'content':'{}'}}]})
   payload=self.payload()|{'response_format':{'type':'json_schema','json_schema':{'schema':{'type':'object'}}}}
