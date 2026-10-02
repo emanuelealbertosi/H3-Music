@@ -119,6 +119,24 @@ class ApiTests(unittest.TestCase):
    app.llm('/chat/completions',self.payload())
    sent=json.loads(factory.return_value.open.call_args.args[0].data)
    self.assertEqual(sent['max_completion_tokens'],100);self.assertNotIn('max_tokens',sent);self.assertNotIn('temperature',sent)
+ def test_failed_adaptation_records_error_without_prompt_or_key(self):
+  with patch.object(lyric_meter,'adapt',side_effect=ValueError('API rejected fake-secret')):
+   with self.assertRaises(ValueError):app.assistant_operation('lyrics/adapt',{'request':{'lyrics':'private words'}})
+  record=json.loads((app.DATA/'assistant/last-error.json').read_text(encoding='utf-8'))
+  self.assertEqual(record['operation'],'lyrics/adapt');self.assertEqual(record['model'],'chosen')
+  log=(app.DATA/'assistant/request-errors.log').read_text(encoding='utf-8')
+  self.assertNotIn('fake-secret',log);self.assertNotIn('private words',log);self.assertIn('[chiave nascosta]',log)
+ def test_success_does_not_write_error_log_or_change_preferences(self):
+  before=app.settings()
+  result=app.assistant_operation('assist',{'instruction':'Cambia le parole'})
+  self.assertEqual(result['request']['lyrics'],'[Verse]\nCanto')
+  self.assertFalse((app.DATA/'assistant/last-error.json').exists());self.assertEqual(app.settings(),before)
+ def test_error_log_rotates_and_preserves_the_latest_reason(self):
+  folder=app.DATA/'assistant';folder.mkdir();(folder/'request-errors.log').write_text('old'*24000)
+  with patch.object(lyric_meter,'adapt',side_effect=ValueError('Latest reason')):
+   with self.assertRaises(ValueError):app.assistant_operation('lyrics/adapt',{})
+  self.assertTrue((folder/'request-errors.previous.log').exists())
+  self.assertEqual(json.loads((folder/'last-error.json').read_text())['error'],'Latest reason')
 
 
 if __name__=='__main__':unittest.main()

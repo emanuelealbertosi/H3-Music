@@ -37,6 +37,13 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),http
   assert.equal(await p.locator('#lyrics').inputValue(),'[Verse]\nWords');await p.locator('#ai-apply').click();assert.equal(await p.locator('#lyrics').inputValue(),'[Verse]\nCanto');
   await p.locator('#lyrics-meter').click();await p.locator('#meter-mode').waitFor();assert.match(await p.locator('#modal-content').innerText(),/servizio API/);await p.locator('#meter-run').click();await p.locator('#meter-apply').waitFor();await p.locator('#modal .close').click();
   assert.equal(calls.filter(c=>c.path==='/v1/chat/completions').length,2);assert.ok(calls.every(c=>c.auth==='Bearer fake-ui-secret'));
+  // Failure stays in the dialog's top layer after the background toast expires.
+  authFailure=true;await p.locator('#lyrics-meter').click();await p.locator('#meter-mode').waitFor();await p.locator('#meter-run').click();
+  await p.locator('#modal-error').waitFor();assert.match(await p.locator('#modal-error').innerText(),/Chiave API/);
+  await p.waitForTimeout(9500);assert.equal(await p.locator('#modal-error').isVisible(),true);assert.equal(await p.locator('#modal').evaluate(e=>e.open),true);
+  assert.equal(await p.locator('#meter-proposal').count(),0);assert.equal(await p.locator('#lyrics').inputValue(),'[Verse]\nCanto');
+  authFailure=false;await p.locator('#meter-run').click();await p.locator('#meter-apply').waitFor();assert.equal(await p.locator('#modal-error').count(),0);await p.locator('#modal .close').click();
+  authFailure=true;await p.locator('#assist').click();await p.locator('#instruction').fill('Riprova');await p.locator('#ai-run').click();await p.locator('#modal-error').waitFor();assert.match(await p.locator('#modal-error').innerText(),/Chiave API/);await p.locator('#modal .close').click();
   await p.locator('[data-page="system"]').click();authFailure=true;await p.locator('#api-models').click();await p.waitForFunction(()=>document.querySelector('#api-assistant-status').textContent.includes('Chiave API'));
   await p.locator('#s-api-clear-key').check();await p.locator('#preferences').click();
   await p.waitForFunction(()=>document.querySelector('#api-key-status').textContent.includes('viene salvata'));

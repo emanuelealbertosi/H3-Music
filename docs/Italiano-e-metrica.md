@@ -136,6 +136,14 @@ vengono ripetute automaticamente richieste con errore di rete, quota o chiave.
 Sono supportate le API **Chat Completions** compatibili OpenAI, non protocolli
 nativi differenti. Disponibilità e qualità dipendono dal modello scelto.
 
+Gli errori restano leggibili dentro la finestra dell’assistente o dell’adattamento,
+anche dopo la scomparsa dell’avviso temporaneo. Il messaggio si aggiorna con
+un nuovo tentativo e sparisce dopo una risposta riuscita o chiudendo la finestra.
+L’app registra l’ultimo errore in `data/assistant/last-error.json` e uno storico
+limitato in `data/assistant/request-errors.log`. Il registro contiene operazione,
+modello, data e motivo, senza chiavi API, prompt o spartiti. Questi file privati
+sono esclusi da Git e non vengono inviati al servizio.
+
 Riferimenti: [OpenAI Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create),
 [DeepSeek JSON Output](https://api-docs.deepseek.com/guides/json_mode/),
 [OpenRouter Structured Outputs](https://openrouter.ai/docs/guides/features/structured-outputs).

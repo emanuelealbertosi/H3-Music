@@ -605,6 +605,27 @@ def assist(data):
  merged=req|{k:suggestion[k] for k in ('title','style','lyrics','abc') if k in suggestion}
  return {'request':validate(merged)}
 
+def assistant_operation(operation,data):
+ try:
+  with assistant_engine.session(APP):
+   return assist(data) if operation=='assist' else lyric_meter.adapt(APP,data)
+ except Exception as error:
+  # Keep diagnostic metadata, never the prompt, score, credentials or response.
+  try:
+   s=settings();message=str(error)
+   for key in assistant_api.keys(APP).values():
+    if key:message=message.replace(key,'[chiave nascosta]')
+   record={'time':now(),'operation':operation,'provider':s['llm_provider'],
+           'model':s['llm_api_model'] if s['llm_provider']=='api' else s['llm_model'],
+           'error':message[:4000]}
+   with LOCK:
+    write_json(DATA/'assistant/last-error.json',record)
+    path=DATA/'assistant/request-errors.log'
+    if path.exists() and path.stat().st_size>65536:path.replace(path.with_suffix('.previous.log'))
+    with path.open('a',encoding='utf-8') as log:log.write(jdump(record)+'\n')
+  except Exception:pass
+  raise
+
 def lyric_context(data):
  req=validate(data.get('request',{}))
  if req['base_enabled']:
@@ -783,10 +804,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
     if not 4096<=s['llm_context']<=65536:raise ValueError('Contesto dell’assistente fuori intervallo.')
     assistant_api.save_preferences(APP,s,data); WAKE.set(); result={'ok':True}
    elif path=='/api/assist':
-    with assistant_engine.session(APP):result=assist(data)
+    result=assistant_operation('assist',data)
    elif path=='/api/lyrics/context':result=lyric_context(data)
    elif path=='/api/lyrics/adapt':
-    with assistant_engine.session(APP):result=lyric_meter.adapt(APP,data)
+    result=assistant_operation('lyrics/adapt',data)
    elif path=='/api/loras/install':result=install_loras()
    elif path=='/api/export': result=export_audio(data)
    elif path=='/api/bundle': result=bundle(data)
