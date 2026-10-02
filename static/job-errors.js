@@ -31,10 +31,18 @@ function updateJobErrors(){
  renderStudioErrors();
 }
 const pendingJobErrors=new Set();
+const studioErrorsExpanded=new Map();
 document.querySelector('#modal').addEventListener('close',acknowledgeJobError);
 function renderStudioErrors(){
  const root=$('#studio-errors');if(!root)return;
+ const current=root.querySelector('details');
+ if(current)studioErrorsExpanded.set(root.dataset.context,current.open);
+ const context=JSON.stringify([pid,studioResultSource]);
  const jobs=state.jobs.filter(j=>j.status==='failed'&&((pid&&j.project_id===pid)||j.id===studioResultSource));
- root.innerHTML=jobs.length?`<section class="card job-error-card"><div class="eyebrow">ULTIMI LAVORI INTERROTTI</div>${jobs.slice(0,3).map(j=>`<div><h3>${esc(j.request.title)}</h3><p>${esc(jobErrorExplanation(j).cause)}</p><button class="btn small" data-job-error="${esc(j.id)}">Leggi la spiegazione</button></div>`).join('')}</section>`:'';
+ const html=jobs.length?`<details class="card job-error-card"><summary>Ultimi lavori interrotti (${jobs.length})</summary>${jobs.slice(0,3).map(j=>`<div><h3>${esc(j.request.title)}</h3><p>${esc(jobErrorExplanation(j).cause)}</p><button class="btn small" data-job-error="${esc(j.id)}">Leggi la spiegazione</button></div>`).join('')}${jobs.length>3?'<p class="hint">Qui trovi gli ultimi tre. Tutti i lavori sono disponibili nella Coda.</p>':''}</details>`:'';
+ if(root.dataset.context===context&&root.studioErrorsHTML===html)return;
+ root.dataset.context=context;root.studioErrorsHTML=html;root.innerHTML=html;
+ const details=root.querySelector('details');
+ if(details){details.open=studioErrorsExpanded.get(context)||false;details.ontoggle=()=>studioErrorsExpanded.set(context,details.open)}
  $$('[data-job-error]',root).forEach(button=>button.onclick=()=>showJobError(state.jobs.find(j=>j.id===button.dataset.jobError)));
 }
