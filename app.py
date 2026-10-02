@@ -705,7 +705,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
      cuda=json.loads(run_capture([str(platform_runtime.python(ROOT)),str(ROOT/'scripts/gpu_info.py')],15).stdout or '{}') if platform_runtime.windows() else {}
     except Exception: cuda={}
     motore={'cuda':'CUDA','metal':'Metal','cpu':'CPU'}[settings()['backend']]
-    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.9.1','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
+    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.9.2','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
    if path=='/api/voice-audio':
     ref=voice_sample(urllib.parse.parse_qs(parsed.query).get('name',[''])[0])
     if ref is None:raise ValueError('Campione vocale non trovato.')
@@ -741,7 +741,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
    data=json.loads(self.rfile.read(size)); path=urllib.parse.urlparse(self.path).path
    if path=='/api/projects': result=project_save(data)
    elif path=='/api/models/location':result=change_model_location(data)
-   elif path=='/api/llm/browse':result=assistant_engine.choose_model(APP)
+   elif path=='/api/llm/files':result=assistant_engine.model_files(APP,data)
+   elif path=='/api/llm/browse':raise ValueError('Il selettore è stato aggiornato. Ricarica la pagina e premi Sfoglia.')
    elif path=='/api/models/browse':
     if platform_runtime.windows():
      script="Add-Type -AssemblyName System.Windows.Forms; $picker=New-Object System.Windows.Forms.FolderBrowserDialog; $picker.Description='Scegli la cartella dei modelli H3-Music'; if($picker.ShowDialog() -eq 'OK'){[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; [Console]::Write($picker.SelectedPath)}"

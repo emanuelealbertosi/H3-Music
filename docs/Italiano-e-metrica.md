@@ -75,8 +75,9 @@ aggiungere `-Assistant` su Windows oppure `--assistant` su Mac.
 
 In **Sistema → Assistente integrato → Sfoglia…** puoi scegliere un altro
 modello istruito GGUF già presente. Premi **Salva preferenze**: viene usato
-dalla sua posizione, senza copiarlo. Il selettore si apre sul computer che
-esegue H3-Music, anche quando il browser è collegato da remoto. Lascia il
+dalla sua posizione, senza copiarlo. Il selettore si apre dentro l’app e mostra le cartelle e i dischi del computer
+che esegue H3-Music, anche tramite Tailscale. Include ricerca, cartella
+superiore e annullamento; mostra soltanto cartelle e file GGUF. Lascia il
 campo vuoto per usare il Qwen installato nella cartella modelli dell’app.
 Il supporto dipende dall’architettura riconosciuta dal motore llama.cpp.
 La cartella modelli include anche il Qwen predefinito durante un trasferimento;

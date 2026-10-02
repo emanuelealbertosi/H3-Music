@@ -1,0 +1,32 @@
+const {chromium}=require('playwright'),assert=require('node:assert/strict'),path=require('node:path');
+(async()=>{const browser=await chromium.launch({headless:true,channel:'msedge'});try{
+ const base=process.env.H3_TEST_URL;assert.ok(base&&process.env.H3_MODEL_DESTINATION,'Isolated fixture required');
+ const p=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];p.on('pageerror',e=>errors.push(e.message));
+ const location=await p.request.get(base+'/api/models/location').then(r=>r.json()),folder=path.join(location.path,'assistant');
+ const selected=path.join(folder,'Sotto cartella',"Modello d'Italia è.GGUF");
+ const before=await p.request.get(base+'/api/state').then(r=>r.json());
+ await p.goto(base+'/#system');await p.locator('#s-provider').selectOption('internal');await p.locator('#s-internal-model').fill(folder);
+ await p.locator('#assistant-model-browse').click();await p.getByRole('button',{name:'▤ Sotto cartella Apri cartella ›'}).click();
+ await p.waitForFunction(value=>document.querySelector('#assistant-file-path').value===value,path.dirname(selected));
+ await p.locator('#assistant-file-search').fill('nonexistent');assert.match(await p.locator('#assistant-file-list').innerText(),/Nessuna/);
+ await p.locator('#assistant-file-search').fill('Italia');await p.locator('.assistant-file-entry').click();
+ assert.equal(await p.locator('#s-internal-model').inputValue(),selected);
+ assert.match(await p.locator('#assistant-status').innerText(),/Salva preferenze/);
+ const after=await p.request.get(base+'/api/state').then(r=>r.json());assert.deepEqual(after.settings,before.settings);
+ await p.locator('#assistant-model-browse').click();await p.locator('.assistant-file-entry').waitFor();
+ await p.locator('#assistant-file-parent').click();await p.waitForFunction(value=>document.querySelector('#assistant-file-path').value===value,folder);
+ assert.doesNotMatch(await p.locator('#assistant-file-list').innerText(),/ignored.txt/);
+ await p.locator('#assistant-file-path').fill(path.join(folder,'missing-folder'));await p.locator('#assistant-file-form button').click();
+ await p.getByText('Cartella non trovata. Controlla il percorso o scegli un’altra posizione.').waitFor();
+ assert.equal(await p.locator('#assistant-file-cancel').isEnabled(),true);
+ await p.setViewportSize({width:390,height:844});assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
+ await p.locator('#assistant-file-cancel').click();assert.equal(await p.locator('#s-internal-model').inputValue(),selected);
+ // A slow folder must never trap the user on Attendi or apply a stale result.
+ let held;await p.route('**/api/llm/files',r=>{held=r});
+ await p.locator('#assistant-model-browse').click();await p.locator('#assistant-file-cancel').click();
+ assert.equal(await p.locator('#modal').evaluate(e=>e.open),false);assert.equal(await p.locator('#assistant-model-browse').isEnabled(),true);
+ if(held)await held.abort().catch(()=>{});await p.unroute('**/api/llm/files');
+ await p.locator('#assistant-model-browse').click();await p.locator('.assistant-file-entry').waitFor();
+ await p.locator('#assistant-file-cancel').click();assert.equal(await p.locator('#s-internal-model').inputValue(),selected);
+ assert.deepEqual(errors,[]);console.log('PASS: real filesystem browsing in app, folders/parent, GGUF filter, Unicode/apostrophes, search, selection without copying/saving, cancel, missing folder, abort/reopen, mobile');
+}finally{await browser.close()}})().catch(e=>{console.error(e);process.exit(1)});

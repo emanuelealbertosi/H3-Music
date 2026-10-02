@@ -40,6 +40,8 @@ def main():
                            'models/yue2/sidecars/test.json': b'{}',
                            'models/tools/HTDemucs-GGUF/sep.gguf': b'sep',
                            'models/tools/SeedVC-MLX-GGUF/voice.gguf': b'voice',
+                           "models/assistant/Sotto cartella/Modello d'Italia è.GGUF": b'GGUF',
+                           'models/assistant/ignored.txt': b'not a model',
                            'models/manifest.json': b'[]', 'models/tools-manifest.json': b'{}'}.items():
             p = root / name; p.parent.mkdir(parents=True, exist_ok=True); p.write_bytes(data)
         (root / 'models/installed-models.json').write_text(json.dumps({'files': {
@@ -55,7 +57,7 @@ def main():
                 time.sleep(.1)
             if not url: raise RuntimeError('Fixture server timed out')
             env = dict(os.environ, H3_TEST_URL=url, H3_MODEL_DESTINATION=str(base / 'Modelli è musica'))
-            for script in ('ui_execution.cjs', 'ui_model_location.cjs', 'ui_studio_result.cjs', 'ui_library_cleanup.cjs', 'ui_original_base.cjs', 'ui_transcription.cjs', 'ui_loras_meter.cjs', 'ui_assistant_errors.cjs'):
+            for script in ('ui_execution.cjs', 'ui_model_location.cjs', 'ui_studio_result.cjs', 'ui_library_cleanup.cjs', 'ui_original_base.cjs', 'ui_transcription.cjs', 'ui_loras_meter.cjs', 'ui_assistant_errors.cjs', 'ui_assistant_picker.cjs'):
                 subprocess.run([shutil.which('node'), str(ROOT / 'tests' / script)], env=env, check=True)
         finally:
             if url:

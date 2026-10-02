@@ -4,8 +4,6 @@ import sys
 import threading
 import unittest
 import tempfile
-import base64
-import subprocess
 from unittest.mock import Mock,patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import app,assistant_engine
@@ -24,30 +22,30 @@ class AssistantTests(unittest.TestCase):
  def test_switching_model_does_not_apply_other_models_mtp_profile(self):
   args=assistant_engine.command(Path('llama-server'),Path('other.gguf'),'cuda',16384,1234,'private',6,{'optimized_mtp':True,'optimized_model':'voice.gguf'})
   self.assertNotIn('--spec-type',args)
- def test_model_picker_cancellation_and_file_validation(self):
-  fake=Mock();fake.platform_runtime.windows.return_value=True
-  fake.run_capture.return_value=Mock(returncode=0,stdout='',stderr='')
-  self.assertEqual(assistant_engine.choose_model(fake),{'path':''})
-  with tempfile.TemporaryDirectory(dir=app.ROOT/'tests') as folder:
-   model=Path(folder)/'Modello è.gguf';model.write_bytes(b'GGUF')
-   fake.run_capture.return_value.stdout=str(model)
-   self.assertEqual(assistant_engine.choose_model(fake),{'path':str(model.resolve())})
-   fake.run_capture.return_value.stdout=str(model.with_suffix('.txt'))
-   with self.assertRaisesRegex(ValueError,'gguf'):assistant_engine.choose_model(fake)
- @unittest.skipUnless(app.platform_runtime.windows(),'Windows PowerShell parser required')
- def test_windows_picker_script_parses_with_real_powershell(self):
-  fake=Mock();fake.platform_runtime.windows.return_value=True
-  fake.run_capture.return_value=Mock(returncode=0,stdout='',stderr='')
-  assistant_engine.choose_model(fake)
-  script=fake.run_capture.call_args.args[0][-1]
-  encoded=base64.b64encode(script.encode('utf-16le')).decode()
-  probe="$source=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('"+encoded+"')); $tokens=$null; $parseErrors=$null; [void][System.Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$parseErrors); $parseErrors | ForEach-Object {$_.Message}; if($parseErrors.Count){exit 1}"
-  response=subprocess.run(['powershell','-NoProfile','-Command',probe],capture_output=True,text=True,timeout=15,creationflags=app.HIDDEN)
-  self.assertEqual(response.returncode,0,response.stdout+response.stderr)
- def test_macos_model_picker_cancellation_is_not_an_error(self):
-  fake=Mock();fake.platform_runtime.windows.return_value=False;fake.platform_runtime.macos.return_value=True
-  fake.run_capture.return_value=Mock(returncode=1,stdout='',stderr='User canceled. (-128)')
-  self.assertEqual(assistant_engine.choose_model(fake),{'path':''})
+ def test_in_app_picker_lists_only_folders_and_gguf_including_unicode(self):
+  folder=Path(self.temp.name);(folder/'Sotto cartella').mkdir()
+  model=folder/"Modello d'Italia è.GGUF";model.write_bytes(b'GGUF')
+  (folder/'ignored.txt').write_text('not a model')
+  fake=self.fake();fake.MODEL=folder/'yue2'
+  result=assistant_engine.model_files(fake,{'path':str(folder)})
+  self.assertEqual([e['name'] for e in result['entries']],['Sotto cartella',model.name])
+  self.assertEqual(result['entries'][1]['bytes'],4)
+  self.assertEqual(result['entries'][1]['path'],str(model))
+  self.assertEqual(result['parent'],str(folder.parent));fake.run_capture.assert_not_called()
+ def test_in_app_picker_starts_in_configured_model_folder(self):
+  fake=self.fake();fake.MODEL=Path(self.temp.name)/'yue2'
+  model=Path(self.temp.name)/'Qwen.gguf';model.write_bytes(b'GGUF')
+  fake.settings=lambda:{'llm_internal_model':str(model)}
+  self.assertEqual(assistant_engine.model_files(fake,{'initial':True})['path'],str(model.parent))
+ def test_in_app_picker_rejects_missing_relative_and_non_directory_paths(self):
+  fake=self.fake();fake.MODEL=Path(self.temp.name)/'yue2'
+  file=Path(self.temp.name)/'Qwen.gguf';file.write_bytes(b'GGUF')
+  for path in ('relative-folder',str(file.parent/'missing'),str(file)):
+   with self.subTest(path=path),self.assertRaises(ValueError):assistant_engine.model_files(fake,{'path':path})
+ def test_in_app_picker_reports_unreadable_folder(self):
+  fake=self.fake();fake.MODEL=Path(self.temp.name)/'yue2'
+  with patch.object(assistant_engine.os,'scandir',side_effect=PermissionError),self.assertRaisesRegex(ValueError,'leggere'):
+   assistant_engine.model_files(fake,{'path':self.temp.name})
  def fake(self):
   return Mock(ROOT=Path(self.temp.name),settings=lambda:{'llm_provider':'internal'},LOCK=threading.RLock(),db=Mock(return_value=None),WAKE=threading.Event())
  def test_runtime_install_and_assistant_load_are_mutually_exclusive(self):

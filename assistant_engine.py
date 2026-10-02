@@ -48,21 +48,45 @@ def busy():return _busy
 def internal(app):return app.settings().get('llm_provider','lmstudio')=='internal'
 def model_id(app):return 'h3-assistant'
 
-def choose_model(app):
- """Choose an existing file on the computer running H3, without copying it."""
- if app.platform_runtime.windows():
-  script="Add-Type -AssemblyName System.Windows.Forms; $picker=New-Object System.Windows.Forms.OpenFileDialog; $picker.Title='Scegli un modello GGUF per H3-Music'; $picker.Filter='Modelli GGUF (*.gguf)|*.gguf'; $picker.CheckFileExists=$true; $picker.Multiselect=$false; $picker.RestoreDirectory=$true; if($picker.ShowDialog() -eq 'OK'){[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; [Console]::Write($picker.FileName)}"
-  response=app.run_capture(['powershell','-NoProfile','-STA','-Command',script],300)
- elif app.platform_runtime.macos():
-  response=app.run_capture(['osascript','-e','POSIX path of (choose file with prompt "Scegli un modello GGUF per l’assistente H3-Music")'],300)
-  if response.returncode and '(-128)' in response.stderr:return {'path':''}
- else:raise ValueError('Inserisci il percorso completo del modello GGUF.')
- if response.returncode:raise ValueError('Non è stato possibile aprire il selettore del modello. Puoi inserire il percorso nel campo.')
- selected=response.stdout.strip()
- if not selected:return {'path':''}
- model=Path(selected)
- if model.suffix.lower()!='.gguf' or not model.is_file():raise ValueError('Scegli un file modello con estensione .gguf.')
- return {'path':str(model.resolve())}
+def model_files(app,data):
+ """List folders and GGUF files for the in-app picker; never launch a desktop dialog."""
+ value=data.get('path','')
+ if not isinstance(value,str) or len(value)>4000:raise ValueError('Percorso della cartella non valido.')
+ initial=data.get('initial') is True
+ if not value.strip():
+  configured=app.settings().get('llm_internal_model','')
+  target=Path(configured).expanduser() if configured else app.MODEL.parent
+ else:target=Path(value.strip()).expanduser()
+ if initial and not target.is_absolute():target=app.MODEL.parent/target
+ if not target.is_absolute():raise ValueError('Inserisci un percorso completo della cartella.')
+ try:
+  if initial and (target.is_file() or target.suffix.lower()=='.gguf'):target=target.parent
+  if initial and not target.is_dir():target=app.MODEL.parent
+  target=target.resolve(strict=True)
+  if not target.is_dir():raise ValueError('Scegli una cartella da aprire.')
+  entries=[];truncated=False
+  with os.scandir(target) as listing:
+   for item in listing:
+    try:
+     directory=item.is_dir()
+     if directory or item.name.lower().endswith('.gguf') and item.is_file():
+      if len(entries)>=2000:truncated=True;break
+      entries.append({'name':item.name,'path':str(target/item.name),'kind':'directory' if directory else 'file','bytes':0 if directory else item.stat().st_size})
+    except OSError:continue
+ except FileNotFoundError:raise ValueError('Cartella non trovata. Controlla il percorso o scegli un’altra posizione.')
+ except PermissionError:raise ValueError('Non è possibile leggere questa cartella. Scegli una posizione accessibile.')
+ except OSError:raise ValueError('La cartella non è disponibile. Controlla che il disco sia collegato.')
+ entries.sort(key=lambda item:(item['kind']!='directory',item['name'].casefold()))
+ roots=[]
+ if os.name=='nt':
+  import ctypes
+  mask=ctypes.windll.kernel32.GetLogicalDrives()
+  roots=[{'name':chr(65+i)+':','path':chr(65+i)+':'+os.sep} for i in range(26) if mask & (1<<i)]
+ else:roots=[{'name':'Disco','path':'/'}]
+ for label,path in (('Modelli',app.MODEL.parent),('Utente',Path.home()),('Download',Path.home()/'Downloads')):
+  if path.is_dir() and str(path) not in {r['path'] for r in roots}:roots.append({'name':label,'path':str(path)})
+ return {'path':str(target),'parent':str(target.parent) if target.parent!=target else '',
+         'roots':roots,'entries':entries,'truncated':truncated}
 
 def manifest(app):
  try:return json.loads((app.ROOT/'runtime/assistant/installed.json').read_text(encoding='utf-8'))

@@ -9,7 +9,7 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
   if(path==='state')result={...live,settings,jobs,projects:[]};
   else if(path==='settings'){settings={...settings,...req.postDataJSON()};result={ok:true}}
   else if(path==='llm/status')result={ready:true,busy:false,loaded:false,backends:['cpu','cuda']};
-  else if(path==='llm/browse'){browseCalls++;result={path:browseCalls===1?'F:\\Modelli è\\Qwen.gguf':''}}
+  else if(path==='llm/files'){browseCalls++;result={path:'F:\\Modelli è',parent:'F:\\',roots:[],entries:[{name:'Qwen.gguf',path:'F:\\Modelli è\\Qwen.gguf',kind:'file',bytes:4}]}}
   else if(path==='voices')result={voices:[]};
   else if(path==='imports')result={sources:[{id:source,name:'Originale.mp3',duration:30,url:'/imports/'+source+'/audio'}]};
   else if(path==='lyrics/context'){
@@ -26,10 +26,10 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  await p.locator('#s-provider').selectOption('internal');await p.locator('#assistant-status').waitFor();
  assert.equal(await p.locator('#external-assistant').isVisible(),false);
  assert.equal(await p.locator('#s-llm-device').inputValue(),'cpu');
- await p.locator('#s-llm-device').selectOption('cuda');await p.locator('#assistant-model-browse').click();
+ await p.locator('#s-llm-device').selectOption('cuda');await p.locator('#assistant-model-browse').click();await p.locator('.assistant-file-entry').click();
  await p.waitForFunction(()=>document.querySelector('#s-internal-model').value==='F:\\Modelli è\\Qwen.gguf');
  assert.match(await p.locator('#assistant-status').innerText(),/Salva preferenze/);
- await p.locator('#assistant-model-browse').click();await p.waitForFunction(()=>!document.querySelector('#assistant-model-browse').disabled);
+ await p.locator('#assistant-model-browse').click();await p.locator('.assistant-file-entry').waitFor();await p.locator('#assistant-file-cancel').click();
  assert.equal(await p.locator('#s-internal-model').inputValue(),'F:\\Modelli è\\Qwen.gguf');assert.equal(browseCalls,2);
  await p.locator('#preferences').click();await p.waitForFunction(()=>document.querySelector('#toast').textContent==='Preferenze salvate');
  assert.equal(settings.llm_provider,'internal');assert.equal(settings.llm_device,'cuda');assert.equal(settings.backend,'cpu');assert.equal(settings.llm_context,16384);
