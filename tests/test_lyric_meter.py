@@ -53,6 +53,7 @@ class MeterTests(unittest.TestCase):
    self.assertEqual(result['request']['lyrics'],'[Verse]\nCanto\nCanto\n\n[Chorus]\nCanto\nCanto')
    sent=json.loads(call.call_args_list[1].args[1]['messages'][1]['content'])
    self.assertEqual([p['section'] for p in sent['phrases']],['Verse','Verse','Chorus','Chorus'])
+   self.assertIn('title',sent);self.assertIn('style',sent)
  def test_section_continues_across_chunk_boundary(self):
   phrases=[{'notes':[{'start':n*.5,'duration':.25},{'start':n*.5+.25,'duration':.25}]} for n in range(13)]
   def respond(path,payload,**kwargs):
@@ -79,6 +80,30 @@ class MeterTests(unittest.TestCase):
  def test_malformed_output_or_missing_model_never_applies(self):
   with patch.object(app,'settings',return_value=app.DEFAULTS),patch.object(app,'llm',return_value={'data':[]}),self.assertRaisesRegex(ValueError,'Carica'):lyric_meter.adapt(app,{'request':{'lyrics':'source'},'phrases':self.phrases()})
   with patch.object(app,'settings',return_value=app.DEFAULTS|{'llm_model':'test'}),patch.object(app,'llm',return_value=self.response(ident=2)),self.assertRaisesRegex(ValueError,'ordine'):lyric_meter.adapt(app,{'request':{'lyrics':'source'},'phrases':self.phrases()})
+ def test_repeated_refrain_receives_completed_reference_across_chunks(self):
+  phrases=[{'notes':[{'start':n*.5,'duration':.25},{'start':n*.5+.25,'duration':.25}]} for n in range(13)]
+  def respond(path,payload,**kwargs):
+   data=json.loads(payload['messages'][1]['content'])
+   if 'required_section_order' in data:
+    result={'sections':[{'start':1,'section':'Chorus'},{'start':3,'section':'Verse'},{'start':13,'section':'Chorus'}]}
+   else:
+    if data['phrases'][0]['id']==13:
+     self.assertEqual(data['chorus_reference'],[{'section':'Chorus','text':'Canto'}]*2)
+     self.assertEqual([h['section'] for h in data['song_structure']],['Chorus','Verse','Chorus'])
+     self.assertEqual(data['previous_lines'][-1]['section'],'Verse')
+    result={'lines':[{'id':p['id'],'section':p['section'],'text':'Canto'} for p in data['phrases']]}
+   return {'choices':[{'message':{'content':json.dumps(result)}}]}
+  with patch.object(app,'settings',return_value=app.DEFAULTS|{'llm_model':'test'}),patch.object(app,'llm',side_effect=respond) as call:
+   result=lyric_meter.adapt(app,{'request':{'lyrics':'[Chorus]\nCanto\n[Verse]\nWords\n[Chorus]\nCanto'},'phrases':phrases})
+   self.assertEqual(lyric_meter.lyric_tags(result['request']['lyrics']),['Chorus','Verse','Chorus'])
+   self.assertEqual(call.call_count,5)
+ def test_incomplete_or_empty_refrain_is_not_a_completed_reference(self):
+  headings=[{'start':1,'section':'Intro'},{'start':1,'section':'Chorus'},{'start':4,'section':'Verse'}]
+  self.assertEqual(lyric_meter.chorus_reference([{'section':'Chorus','text':'Canto'}],headings,4),[])
+  self.assertEqual(lyric_meter.chorus_reference([],[{'start':1,'section':'Chorus'},{'start':1,'section':'Verse'}],4),[])
+ def test_final_refrain_is_not_reused_before_it_has_finished(self):
+  lines=[{'section':'Chorus','text':'Un verso'}]
+  self.assertEqual(lyric_meter.chorus_reference(lines,[{'start':1,'section':'Chorus'}],3),[])
  def test_context_does_not_fabricate_transcription(self):
   with self.assertRaisesRegex(ValueError,'spartito'):app.lyric_context({'request':{}})
   self.assertEqual(app.lyric_context({'request':{'abc':'K:C\nC |'}})['abc'],'K:C\nC |')

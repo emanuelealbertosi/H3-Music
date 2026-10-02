@@ -36,7 +36,7 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),http
   await p.locator('#assist').click();await p.locator('#instruction').fill('Adatta queste parole');await p.locator('#ai-run').click();await p.locator('#ai-apply').waitFor();
   assert.equal(await p.locator('#lyrics').inputValue(),'[Verse]\nWords');await p.locator('#ai-apply').click();assert.equal(await p.locator('#lyrics').inputValue(),'[Verse]\nCanto');
   await p.locator('#lyrics-meter').click();await p.locator('#meter-mode').waitFor();assert.match(await p.locator('#modal-content').innerText(),/servizio API/);await p.locator('#meter-run').click();await p.locator('#meter-apply').waitFor();await p.locator('#modal .close').click();
-  assert.equal(calls.filter(c=>c.path==='/v1/chat/completions').length,2);assert.ok(calls.every(c=>c.auth==='Bearer fake-ui-secret'));
+  assert.equal(calls.filter(c=>c.path==='/v1/chat/completions').length,4);assert.ok(calls.every(c=>c.auth==='Bearer fake-ui-secret'));
   // Failure stays in the dialog's top layer after the background toast expires.
   authFailure=true;await p.locator('#lyrics-meter').click();await p.locator('#meter-mode').waitFor();await p.locator('#meter-run').click();
   await p.locator('#modal-error').waitFor();assert.match(await p.locator('#modal-error').innerText(),/Chiave API/);

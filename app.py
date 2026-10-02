@@ -595,14 +595,16 @@ def assist(data):
   models=llm('/models').get('data',[])
   if not models: raise ValueError('Nessun modello caricato in LM Studio.')
   model=models[0]['id']
- system='You are a music composer assisting H3-Music. Return ONLY a valid JSON object with title, style, lyrics, abc. Write the style prompt in English. Follow the user language for lyrics. Preserve fields the user did not ask to change. ABC is optional; do not invent an audio transcription or claim you checked syllable alignment without a score. For score edits preserve notes and lyric order unless the user requests changing them. Never claim you generated audio. '+lyric_meter.TAG_RULES
+ system='You are a music composer assisting H3-Music. Return ONLY a valid JSON object with title, style, lyrics, abc. Write the style prompt in English. Follow the user language for lyrics. Preserve fields the user did not ask to change. ABC is optional; do not invent an audio transcription or claim you checked syllable alignment without a score. For score edits preserve notes and lyric order unless the user requests changing them. Never claim you generated audio. When the instruction asks to improve the text/lyrics, actively revise the lyrics field: repair grammar and unnatural sentences and return the improved lyrics, even without detailed editorial instructions. Preserve meaning, not defective wording. Retain the original content and verse length as far as the requested change allows. Do not shorten the song by default. If the user only requests a style, title or score edit, leave lyrics unchanged. '+lyric_meter.LYRIC_WRITING_RULES+'\n'+lyric_meter.TAG_RULES
  current={k:req[k] for k in ('title','style','lyrics','abc')} if assistant_api.active(APP) or settings()['llm_provider']=='api' else req
  res=llm('/chat/completions',{'model':model,'messages':[{'role':'system','content':system},{'role':'user','content':jdump({'current':current,'instruction':instruction})}],'temperature':.7,'max_tokens':6000,'stream':False})
  text=res['choices'][0]['message']['content']; text=re.sub(r'<think>.*?</think>','',text,flags=re.S).strip(); text=re.sub(r'^```(?:json)?\s*|\s*```$','',text)
  try: suggestion=json.loads(text)
  except json.JSONDecodeError: raise ValueError('L’assistente non ha restituito JSON valido. Riprova con una richiesta più breve.')
  if 'lyrics' in suggestion and lyric_meter.lyric_tags(req['lyrics']) and lyric_meter.lyric_tags(str(suggestion['lyrics']))!=lyric_meter.lyric_tags(req['lyrics']):raise ValueError('L’assistente ha rimosso o modificato i TAG originali. La proposta non è stata applicata: riprova chiedendo di conservarli tutti.')
- merged=req|{k:suggestion[k] for k in ('title','style','lyrics','abc') if k in suggestion}
+ merged=validate(req|{k:suggestion[k] for k in ('title','style','lyrics','abc') if k in suggestion})
+ if merged['lyrics'] and merged['lyrics']!=req['lyrics']:
+  merged['lyrics']=lyric_meter.polish_lyrics(APP,model,req['lyrics'],merged['lyrics'],instruction,merged['style'])
  return {'request':validate(merged)}
 
 def assistant_operation(operation,data):

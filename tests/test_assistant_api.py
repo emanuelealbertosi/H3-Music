@@ -81,7 +81,9 @@ class ApiTests(unittest.TestCase):
  def test_assistant_and_meter_use_api_and_preserve_original_fields_and_tags(self):
   result=app.assist({'request':{'lyrics':'[Verse]\nWords','abc':'K:C\nC |','style':'Italian pop','notes':'private production notes','clone_voice':'private-voice-reference'},'instruction':'Adatta il testo'})
   self.assertEqual(result['request']['lyrics'],'[Verse]\nCanto');self.assertEqual(result['request']['abc'],'K:C\nC |')
-  current=json.loads(self.calls[-1][2]['messages'][1]['content'])['current']
+  current=json.loads(self.calls[-2][2]['messages'][1]['content'])['current']
+  editorial=json.loads(self.calls[-1][2]['messages'][1]['content'])
+  self.assertEqual(set(editorial),{'instruction','style','original_lyrics','draft_lyrics'})
   self.assertEqual(set(current),{'title','style','lyrics','abc'});self.assertEqual(result['request']['notes'],'private production notes')
   self.reply=lambda path,body:(200,{'choices':[{'message':{'content':json.dumps({'lines':[{'id':1,'section':'Verse','text':'Canto'}]})}}]})
   request={'title':'Originale','lyrics':'[Verse]\nWords','style':'Italian pop','abc':'K:C\nC |'}
@@ -89,6 +91,13 @@ class ApiTests(unittest.TestCase):
   result=lyric_meter.adapt(app,{'request':request,'phrases':phrases})
   self.assertEqual(result['request']['lyrics'],'[Verse]\nCanto');self.assertEqual(result['request']['style'],request['style'])
   self.assertTrue(all(path=='/v1/chat/completions' for path,_,_ in self.calls))
+ def test_editor_tag_failure_never_returns_or_applies_a_partial_proposal(self):
+  def respond(path,body):
+   editorial='draft_lyrics' in body['messages'][1]['content']
+   return 200,{'choices':[{'message':{'content':json.dumps({'lyrics':'[Chorus]\nCanto' if editorial else '[Verse]\nCanto'})}}]}
+  self.reply=respond;before=app.settings();request={'lyrics':'[Verse]\nWords','abc':'K:C\nC |'}
+  with self.assertRaisesRegex(ValueError,'revisione.*TAG'):app.assistant_operation('assist',{'request':request,'instruction':'Migliora il testo'})
+  self.assertEqual(request['lyrics'],'[Verse]\nWords');self.assertEqual(app.settings(),before);self.assertEqual(len(self.calls),2)
  def test_unsupported_schema_falls_back_only_after_rejection_and_keeps_schema_in_prompt(self):
   self.reply=lambda path,body:(400,{'error':{'message':'response_format json_schema is not supported'}}) if body.get('response_format',{}).get('type')=='json_schema' else (200,{'choices':[{'message':{'content':'{}'}}]})
   payload=self.payload()|{'response_format':{'type':'json_schema','json_schema':{'schema':{'type':'object'}}}}
