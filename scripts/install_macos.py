@@ -20,7 +20,7 @@ import execution
 import model_store
 from scripts import macos_space
 
-RELEASE = 'v1.8.1-macos-preview.1'
+RELEASE = 'v1.9.0-macos-preview.1'
 DOWNLOAD = 'https://github.com/emanuelealbertosi/H3-Music/releases/download/' + RELEASE
 
 
@@ -123,6 +123,7 @@ def transcription_requirements(architecture):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--no-models', action='store_true', help='Prepare runtimes only (CI).')
+    parser.add_argument('--assistant', action='store_true', help='Installa anche l’assistente Qwen facoltativo (circa 2,5 GB).')
     parser.add_argument('--quant', choices=('q4', 'q8', 'bf16'), default='q4')
     parser.add_argument('--models-dir', help='Cartella dedicata ai modelli; trasferisce quelli già installati.')
     args = parser.parse_args()
@@ -178,6 +179,8 @@ def main():
     app.init()
     if not app.db('SELECT value FROM settings WHERE key=?', ('main',), True):
         app.save_settings(app.DEFAULTS | {'backend': 'cpu', 'model': args.quant})
+    if args.assistant:
+        run(main_py, 'scripts/install_assistant.py')
     print('H3-Music pronto. Apri Avvia-Mac.command.', flush=True)
 
 

@@ -14,3 +14,8 @@ audio[hidden]{display:none}
 
 .studio-result-card{margin-bottom:22px}.studio-result-heading{display:flex;align-items:center;justify-content:space-between;gap:20px}.studio-result-heading h2{font-size:20px;margin:4px 0 16px;overflow-wrap:anywhere}.studio-result-heading>div{min-width:0}.studio-result-heading .field{max-width:400px;flex:1}.studio-result-card .actions{margin-top:15px}.studio-result-card .hint:empty{display:none}@media(max-width:720px){.studio-result-heading{display:block}.studio-result-heading .field{max-width:none}.studio-result-card .actions .btn{flex:1 1 170px}}
 .card-title:has(#lyrics-meter){flex-wrap:wrap}#meter-result table{width:100%;font-size:11px;text-align:left;border-collapse:collapse}#meter-result th,#meter-result td{padding:7px 4px;border-bottom:1px solid var(--line)}
+/* Persistent failure explanations stay readable at narrow screen widths. */
+.job-error-cause{font-weight:600;color:#922f29}
+.job-error-detail{white-space:pre-wrap;overflow-wrap:anywhere}
+.job-error-card{border-color:#d3aaa6;margin-bottom:24px}
+.job-error-card>div{margin-top:14px}

@@ -225,11 +225,15 @@ def phrase_intervals(report, duration, source_duration):
 def render_aligned_voice(app, source, output, report, duration, source_duration, ff):
     if 'anchors' not in report:
         delay = report['vocal_delay_seconds']
-        filters = f'atrim=start={max(0,delay):.8f},asetpts=PTS-STARTPTS'
+        # Demucs emits 44.1 kHz. Delay samples and the final frame count use
+        # 48 kHz, so normalize before applying either operation.
+        filters = f'aformat=sample_rates=48000:channel_layouts=stereo,atrim=start={max(0,delay):.8f},asetpts=PTS-STARTPTS'
         scale=report.get('tempo_scale',1.)
         if 'tempo_scale' in report:filters+=f',atempo={scale:.10f}'
         if delay < 0: filters += f',adelay={round(-delay/scale*48000)}S:all=1'
-        filters += f',apad,atrim=duration={duration:.8f}'
+        # adelay's initial silence may have NOPTS timestamps. atrim and the
+        # output muxer can discard that silence unless we stamp every sample.
+        filters += f',asetpts=N/SR/TB,apad,atrim=end_sample={round(duration*48000)}'
         ff(['-i',source,'-af',filters,'-ar','48000','-ac','2','-c:a','pcm_s24le',output], 'Allineamento del nuovo canto',82)
         return
     points = phrase_intervals(report,duration,source_duration)
@@ -256,7 +260,7 @@ def render_aligned_voice(app, source, output, report, duration, source_duration,
         filters.append(f'[{current}][v{i}]acrossfade=d={2*margins[i]:.8f}:c1=tri:c2=tri[{joined}]')
         current = joined
     frames = round(duration*48000)
-    filters.append(f'[{current}]asetpts=N/SR/TB,adelay={round(points[0]["target"]*48000)}S:all=1,apad=whole_len={frames},atrim=end_sample={frames}[aligned]')
+    filters.append(f'[{current}]asetpts=N/SR/TB,adelay={round(points[0]["target"]*48000)}S:all=1,asetpts=N/SR/TB,apad=whole_len={frames},atrim=end_sample={frames}[aligned]')
     graph = output.parent/'voice-alignment.ffscript'
     graph.write_text(';'.join(filters),encoding='utf-8')
     ff(['-i',source,'-filter_complex_script',graph,'-map','[aligned]','-ar','48000','-ac','2','-c:a','pcm_s24le',output], 'Correzione del ritmo vocale',82)

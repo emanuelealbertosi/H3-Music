@@ -1,4 +1,4 @@
-# Italiano e testo sulla melodia · 1.8
+# Italiano e testo sulla melodia · 1.9
 
 ## Quattro LoRA opzionali
 
@@ -49,7 +49,8 @@ oppure creare parole nuove seguendo le tue indicazioni.
 Serve uno spartito ABC nella bozza. Con **Base originale**, l'app cerca
 la trascrizione già completata dello stesso file e dello stesso tratto,
 oppure lo spartito originale di una precedente generazione su quella base.
-Se manca, trascrivi prima quel tratto nella pagina **Trascrivi**.
+Se manca, **Adatta alla melodia** accoda automaticamente la trascrizione
+del tratto scelto e attende il risultato prima di interrogare il modello del testo.
 Non viene inventata una trascrizione dal solo titolo del brano.
 
 L'assistente legge la linea vocale, note legate, pause, durate, tempi forti
@@ -59,8 +60,35 @@ delle frasi prima di applicare **soltanto le parole** alla bozza.
 Il testo precedente rimane fino alla tua scelta; spartito, stile, base,
 LoRA e impostazioni non cambiano.
 
-Richiede **LM Studio** con un modello istruito e il server locale attivo,
-configurati in Sistema. Non richiede un servizio a pagamento.
+Puoi scegliere **Assistente integrato** oppure **LM Studio esterno** in Sistema.
+L’assistente integrato carica il modello solo durante la richiesta e lo scarica
+anche in caso di errore. I lavori audio accodati attendono che abbia liberato
+la memoria. Se un lavoro audio è già avviato, l’app chiede di attendere la sua conclusione.
+La scelta CPU/GPU dell’assistente è indipendente da quella musicale.
+
+Per installarlo su Windows esegui **Installa-Assistente.bat**; su Mac esegui
+**Installa-Assistente-Mac.command**. È facoltativo: scarica llama.cpp e
+Qwen3 4B Q4 (circa 2,5 GB), senza pacchetti Python globali. Su Windows
+parte su CPU; per il motore CUDA usa `Installa-Assistente.bat --gpu`.
+Il motore Mac include CPU e Metal. Durante l’installazione completa puoi
+aggiungere `-Assistant` su Windows oppure `--assistant` su Mac.
+
+In **Sistema → Assistente integrato → Sfoglia…** puoi scegliere un altro
+modello istruito GGUF già presente. Premi **Salva preferenze**: viene usato
+dalla sua posizione, senza copiarlo. Il selettore si apre sul computer che
+esegue H3-Music, anche quando il browser è collegato da remoto. Lascia il
+campo vuoto per usare il Qwen installato nella cartella modelli dell’app.
+Il supporto dipende dall’architettura riconosciuta dal motore llama.cpp.
+La cartella modelli include anche il Qwen predefinito durante un trasferimento;
+un modello esterno scelto manualmente mantiene il proprio percorso.
+
+I TAG già presenti, compresi quelli numerati o ripetuti e le sezioni vuote,
+sono conservati nello stesso ordine. L’assistente prepara una struttura
+per l’intero brano prima di lavorare sulle singole frasi; una proposta che
+rimuove o cambia i TAG viene corretta oppure rifiutata senza modificare la bozza.
+
+Per usare **LM Studio**, carica un modello istruito e attiva il server locale,
+configurato in Sistema. Non richiede un servizio a pagamento.
 Per lasciare libera la GPU musicale, carica l'LLM sulla CPU. Se lo carichi
 sulla GPU, scaricalo da LM Studio prima di avviare YuE2.
 Senza un modello selezionato, viene usata una delle istanze già caricate,
@@ -82,3 +110,11 @@ punti della griglia dello spartito, viene omessa dalla sola notazione;
 le note MIDI e le annotazioni originali sono conservate.
 Altri errori non vengono nascosti: in quel caso rimangono disponibili
 note e MIDI con un messaggio esplicito sull'ABC mancante.
+
+## Componenti dell’assistente
+
+Il componente facoltativo usa [llama.cpp](https://github.com/ggml-org/llama.cpp)
+(MIT) e [Qwen3-4B-GGUF](https://huggingface.co/Qwen/Qwen3-4B-GGUF)
+(Apache-2.0). Le revisioni e gli hash verificati sono in
+`scripts/assistant-runtime.json`. Queste licenze sono distinte da quelle
+dei modelli musicali. Un altro GGUF mantiene la licenza del proprio autore.

@@ -205,6 +205,27 @@ class ResingingTests(unittest.TestCase):
   for contents in ('0 1 nan','2 1 60','0 1 60.5','1 2 60\n0 1 61'):
    path.write_text(contents)
    with self.assertRaises(ValueError):resinging.read_notes(path)
+ @unittest.skipUnless(app.FFMPEG.is_file(),'Bundled FFmpeg is not installed on this runner')
+ def test_negative_delay_keeps_added_silence_and_exact_duration_at_both_input_rates(self):
+  # The production failure used a 44.1 kHz Demucs stem, a negative offset,
+  # and a slight tempo change. Testing only positive offsets missed it.
+  for rate in (44100,48000):
+   for scale in (1.,1.0046):
+    with self.subTest(rate=rate,scale=scale):
+     samples=array.array('h',[0])*(rate*3)
+     for i in range(round(rate*.5),round(rate*.8)):samples[i]=round(9000*math.sin(2*math.pi*440*(i/rate-.5)))
+     source=app.DATA/f'early-{rate}-{scale}.wav'
+     with wave.open(str(source),'wb') as f:f.setparams((1,2,rate,0,'NONE','not compressed'));f.writeframes(samples.tobytes())
+     out=app.DATA/'delayed.wav';report={'vocal_delay_seconds':-.39431}
+     if scale!=1:report['tempo_scale']=scale
+     def ff(args,*_):subprocess.run([str(app.FFMPEG),'-y','-v','error',*map(str,args)],check=True,capture_output=True)
+     resinging.render_aligned_voice(app,source,out,report,3,3,ff)
+     pcm=app.DATA/'delayed-checked.wav';ff(['-i',out,'-ac','1','-c:a','pcm_s16le',pcm])
+     with wave.open(str(pcm),'rb') as f:
+      self.assertEqual(f.getnframes(),3*48000);values=array.array('h');values.frombytes(f.readframes(f.getnframes()))
+     onset=next(i/48000 for i,value in enumerate(values) if abs(value)>1000)
+     self.assertAlmostEqual(onset,(.5+.39431)/scale,delta=.03)
+     self.assertEqual(max(map(abs,values[:round(.7*48000)])),0)
  def exercise_pipeline(self, clone=False, cancelled=False, drift=False, truncated=False, backend='cpu', automatic=True, phrases=False, bad_check=False, mislabeled_mix=False, tempo=False):
   req=app.validate(self.req | {'clone_enabled': clone, 'clone_voice': 'sample' if clone else '', 'voice_steps': 50, 'mix': {'automatic': automatic}})
   project=app.project_save({'request':req})

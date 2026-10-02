@@ -4,7 +4,7 @@
 # FFmpeg, i modelli YuE2 e il runtime di trascrizione (torch CPU), estrae il
 # motore audio.cpp precompilato da dist/, imposta backend=cpu e avvia il server.
 
-param([switch]$DryRun, [switch]$EnableGpu, [switch]$SkipGpuBuild, [switch]$LatestModels, [string]$Models = 'both', [string]$ModelDirectory = '')
+param([switch]$DryRun, [switch]$EnableGpu, [switch]$SkipGpuBuild, [switch]$LatestModels, [string]$Models = 'both', [string]$ModelDirectory = '', [switch]$Assistant)
 
 $ErrorActionPreference = 'Stop'
 # TLS 1.2 sempre; TLS 1.3 solo se il .NET Framework installato lo conosce.
@@ -236,6 +236,7 @@ if (Test-Path $txpy) {
 # ---------- 7. Impostazioni e avvio del server ----------
 Write-Step 7 'Impostazioni e avvio del server'
 Run-Python "$root\scripts\seed_settings.py" @()
+if ($Assistant) { Run-Python "$root\scripts\install_assistant.py" @() }
 
 $ready = $false
 try {

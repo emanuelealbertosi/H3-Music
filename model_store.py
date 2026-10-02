@@ -1,5 +1,5 @@
 """Per-installation model location and verified relocation, stdlib only."""
-from contextlib import contextmanager
+from contextlib import contextmanager, closing
 import hashlib
 import json
 import os
@@ -34,9 +34,9 @@ def save_location(root, path):
 
 
 @contextmanager
-def exclusive(root):
+def exclusive(root, name='model-store.lock'):
     """OS lock released even after a crash; shared by the app and installers."""
-    lock = Path(root) / 'data/model-store.lock'
+    lock = Path(root) / 'data' / name
     lock.parent.mkdir(parents=True, exist_ok=True)
     with lock.open('a+b') as stream:
         try:
@@ -64,7 +64,7 @@ def exclusive(root):
 def check_idle(root):
     database = Path(os.environ.get('H3_MUSIC_DATA', str(Path(root) / 'data'))) / 'music.sqlite'
     if database.exists():
-        with sqlite3.connect(database) as connection:
+        with closing(sqlite3.connect(database)) as connection:
             if connection.execute("SELECT 1 FROM jobs WHERE status IN ('queued','running','cancelling') LIMIT 1").fetchone():
                 raise ValueError('Termina o annulla i lavori in coda prima di cambiare o aggiornare i modelli.')
 

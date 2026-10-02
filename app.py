@@ -5,7 +5,7 @@ from pathlib import Path
 from contextlib import contextmanager
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT))
-import transcription, execution, cloning, mixing, remote_access, library_cleanup, platform_runtime, model_store, resinging, loras, lyric_meter
+import transcription, execution, cloning, mixing, remote_access, library_cleanup, platform_runtime, model_store, resinging, loras, lyric_meter, assistant_engine
 APP=sys.modules[__name__]
 DATA=Path(os.environ.get('H3_MUSIC_DATA',str(ROOT/'data')))
 OUT=DATA/'outputs'
@@ -19,7 +19,7 @@ MODEL_OPERATION={'status':'idle'}
 LORA_OPERATION={'status':'idle'}
 ENGINE=platform_runtime.binary(ROOT,'audiocpp_cli',engine=True)
 FFMPEG=platform_runtime.binary(ROOT,'ffmpeg')
-DEFAULTS={'backend':'cpu','threads':8,'llm_url':'http://127.0.0.1:1234/v1','llm_model':'','paused':False,'model':'q8'}
+DEFAULTS={'backend':'cpu','threads':8,'llm_url':'http://127.0.0.1:1234/v1','llm_model':'','llm_provider':'lmstudio','llm_internal_model':'','llm_device':'cpu','llm_context':16384,'paused':False,'model':'q8'}
 MUSIC_MODELS={'q4':('yue2-3b-q4_0.gguf',2665632320,'Q4'), 'q8':('yue2-3b-q8_0.gguf',4264186432,'Q8'), 'bf16':('yue2-3b-bf16.gguf',7261475392,'BF16')}
 NUMBERS={'cfg_scale':(0,20,1.0),'num_inference_steps':(1,128,32),'abc_temperature':(0,5,.7),'abc_top_p':(0,1,.9),'abc_top_k':(1,1000,30),'abc_repetition_penalty':(.01,10,1.005),'abc_penalty_window':(1,10000,100),'abc_min_tokens':(0,4096,32),'abc_max_tokens':(32,8192,4096),'semantic_temperature':(0,5,1),'semantic_top_p':(0,1,.95),'semantic_top_k':(1,1000,100),'semantic_repetition_penalty':(.01,10,1.2),'semantic_penalty_window':(1,10000,50),'semantic_min_tokens':(0,9000,200),'semantic_max_tokens':(200,12000,9000)}
 INTEGER={'num_inference_steps'}|{k for k in NUMBERS if any(s in k for s in ('top_k','window','tokens'))}
@@ -507,6 +507,7 @@ def worker():
   WAKE.wait(1); WAKE.clear()
   if settings()['paused']: continue
   with LOCK:
+   if assistant_engine.busy():continue
    try:
     with model_store.exclusive(ROOT):
      row=db("SELECT id FROM jobs WHERE status='queued' ORDER BY created LIMIT 1",one=True)
@@ -577,6 +578,7 @@ def install_loras():
  return {'ok':True}
 
 def llm(path,payload=None,timeout=None):
+ if assistant_engine.internal(APP):return assistant_engine.request(APP,path,payload,timeout)
  s=settings(); base=local_llm_url(s['llm_url']); url=base+path
  if path.startswith('/api/'):
   parsed=urllib.parse.urlsplit(base);url=urllib.parse.urlunsplit((parsed.scheme,parsed.netloc,path,'',''))
@@ -586,16 +588,17 @@ def llm(path,payload=None,timeout=None):
 def assist(data):
  req=validate(data.get('request',{})); instruction=str(data.get('instruction','')).strip()[:8000]
  if not instruction: raise ValueError('Descrivi la modifica desiderata.')
- model=settings()['llm_model']
+ model=assistant_engine.model_id(APP) if assistant_engine.internal(APP) else settings()['llm_model']
  if not model:
   models=llm('/models').get('data',[])
   if not models: raise ValueError('Nessun modello caricato in LM Studio.')
   model=models[0]['id']
- system='You are a music composer assisting H3-Music. Return ONLY a valid JSON object with title, style, lyrics, abc. Write the style prompt in English. Follow the user language for lyrics and use [Verse], [Chorus] section labels. Preserve fields the user did not ask to change. ABC is optional; do not invent an audio transcription. For score edits preserve notes and lyric order unless the user requests changing them. Never claim you generated audio.'
+ system='You are a music composer assisting H3-Music. Return ONLY a valid JSON object with title, style, lyrics, abc. Write the style prompt in English. Follow the user language for lyrics. Preserve fields the user did not ask to change. ABC is optional; do not invent an audio transcription or claim you checked syllable alignment without a score. For score edits preserve notes and lyric order unless the user requests changing them. Never claim you generated audio. '+lyric_meter.TAG_RULES
  res=llm('/chat/completions',{'model':model,'messages':[{'role':'system','content':system},{'role':'user','content':jdump({'current':req,'instruction':instruction})}],'temperature':.7,'max_tokens':6000,'stream':False})
  text=res['choices'][0]['message']['content']; text=re.sub(r'<think>.*?</think>','',text,flags=re.S).strip(); text=re.sub(r'^```(?:json)?\s*|\s*```$','',text)
  try: suggestion=json.loads(text)
  except json.JSONDecodeError: raise ValueError('L’assistente non ha restituito JSON valido. Riprova con una richiesta più breve.')
+ if 'lyrics' in suggestion and lyric_meter.lyric_tags(req['lyrics']) and lyric_meter.lyric_tags(str(suggestion['lyrics']))!=lyric_meter.lyric_tags(req['lyrics']):raise ValueError('L’assistente ha rimosso o modificato i TAG originali. La proposta non è stata applicata: riprova chiedendo di conservarli tutti.')
  merged=req|{k:suggestion[k] for k in ('title','style','lyrics','abc') if k in suggestion}
  return {'request':validate(merged)}
 
@@ -610,6 +613,13 @@ def lyric_context(data):
    if source==req['base_import_id'] and abs(a-start)<.1 and abs((b or meta['duration'])-end)<.1:
     score=OUT/row['id']/('source-score/score.abc' if original else 'score.abc')
     if score.is_file():return {'abc':read_abc(score),'source':'melodia della canzone originale'}
+  if data.get('prepare') is True:
+   with LOCK,model_store.exclusive(ROOT):
+    for row in db("SELECT id,request FROM jobs WHERE kind='transcribe' AND status IN ('queued','running') ORDER BY created"):
+     pending=json.loads(row['request'])
+     if pending.get('source_id')==req['base_import_id'] and abs(pending.get('start',0)-start)<.1 and abs((pending.get('end',0) or meta['duration'])-end)<.1:return {'job_id':row['id'],'source':'trascrizione della canzone originale'}
+    queued=transcription.enqueue(APP,{'request':{'title':req['title']+' · metrica','source_id':req['base_import_id'],'start':start,'end':end,'melody_only':True}})
+    return {'job_id':queued['ids'][0],'source':'trascrizione della canzone originale'}
   raise ValueError('Trascrivi prima lo stesso tratto della canzone originale per ricavare la metrica, poi riapri questo pulsante.')
  if not req['abc']:raise ValueError('Importa o trascrivi prima uno spartito ABC per adattare il testo alla sua melodia.')
  return {'abc':req['abc'],'source':'spartito della bozza'}
@@ -695,7 +705,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
      cuda=json.loads(run_capture([str(platform_runtime.python(ROOT)),str(ROOT/'scripts/gpu_info.py')],15).stdout or '{}') if platform_runtime.windows() else {}
     except Exception: cuda={}
     motore={'cuda':'CUDA','metal':'Metal','cpu':'CPU'}[settings()['backend']]
-    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.8.1','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
+    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.9.0','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
    if path=='/api/voice-audio':
     ref=voice_sample(urllib.parse.parse_qs(parsed.query).get('name',[''])[0])
     if ref is None:raise ValueError('Campione vocale non trovato.')
@@ -705,6 +715,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
    if re.fullmatch('/imports/[a-f0-9]{32}/audio',path):
     source,_=transcription.source(DATA,path.split('/')[2]); return self.file_response(source)
    if path=='/api/llm/models': return self.json_response(llm('/models'))
+   if path=='/api/llm/status': return self.json_response(assistant_engine.status(APP))
    if re.fullmatch('/api/jobs/[a-f0-9]{32}',path): return self.json_response(get_job(path.rsplit('/',1)[1],True))
    if path.startswith('/files/'):
     parts=path.split('/')
@@ -730,6 +741,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
    data=json.loads(self.rfile.read(size)); path=urllib.parse.urlparse(self.path).path
    if path=='/api/projects': result=project_save(data)
    elif path=='/api/models/location':result=change_model_location(data)
+   elif path=='/api/llm/browse':result=assistant_engine.choose_model(APP)
    elif path=='/api/models/browse':
     if platform_runtime.windows():
      script="Add-Type -AssemblyName System.Windows.Forms; $picker=New-Object System.Windows.Forms.FolderBrowserDialog; $picker.Description='Scegli la cartella dei modelli H3-Music'; if($picker.ShowDialog() -eq 'OK'){[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; [Console]::Write($picker.SelectedPath)}"
@@ -760,14 +772,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
     s['threads']=int(s['threads'])
     if not 1<=s['threads']<=64: raise ValueError('Thread fuori intervallo.')
     s['llm_url']=local_llm_url(s['llm_url']); s['llm_model']=str(s['llm_model'])[:200]; s['paused']=bool(s['paused'])
+    if assistant_engine.busy():raise ValueError('Attendi la fine dell’adattamento prima di cambiare l’assistente.')
+    if s['llm_provider'] not in ('lmstudio','internal'):raise ValueError('Assistente non valido.')
+    if s['llm_device'] not in platform_runtime.backends():raise ValueError('Dispositivo dell’assistente non valido.')
+    s['llm_internal_model']=str(s['llm_internal_model']).strip()[:2000];s['llm_context']=int(s['llm_context'])
+    if not 4096<=s['llm_context']<=65536:raise ValueError('Contesto dell’assistente fuori intervallo.')
     save_settings(s); WAKE.set(); result={'ok':True}
-   elif path=='/api/assist': result=assist(data)
+   elif path=='/api/assist':
+    with assistant_engine.session(APP):result=assist(data)
    elif path=='/api/lyrics/context':result=lyric_context(data)
-   elif path=='/api/lyrics/adapt':result=lyric_meter.adapt(APP,data)
+   elif path=='/api/lyrics/adapt':
+    with assistant_engine.session(APP):result=lyric_meter.adapt(APP,data)
    elif path=='/api/loras/install':result=install_loras()
    elif path=='/api/export': result=export_audio(data)
    elif path=='/api/bundle': result=bundle(data)
    elif path=='/api/shutdown':
+    if assistant_engine.busy():raise ValueError('Attendi la fine dell’adattamento prima di chiudere.')
+    assistant_engine.stop()
     if LORA_OPERATION['status'] in ('starting','downloading','converting'):raise ValueError('Attendi la fine dell’installazione dei LoRA prima di chiudere.')
     if MODEL_OPERATION['status'] in ('starting','copying','verifying','cleaning'):raise ValueError('Attendi la fine del trasferimento dei modelli prima di chiudere.')
     threading.Thread(target=self.server.shutdown,daemon=True).start(); result={'ok':True}
