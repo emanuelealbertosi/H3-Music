@@ -92,3 +92,33 @@ Il mix lavora su CPU con FFmpeg incluso, senza installazioni aggiuntive. Usa aud
 Il bilanciamento corregge il rapporto di volume, ma non recupera fonemi, dettagli o somiglianza vocale persi dal modello. La qualità resta da valutare all’ascolto.
 
 Collaudo 1.5: 48 test Python superati, compresi audio sintetici per differenza di volume, cursore, silenzio, effetti, durata e protezione dai picchi. Verificati nell’interfaccia i controlli persistenti, creazione e ripetizione del mix, annullamento e visualizzazione desktop/mobile, oltre al flusso di cambio voce esistente. Su un brano reale di circa 315 secondi il nuovo mix conserva la durata e misura un picco vero di −2 dBTP. Questi controlli non certificano la qualità percettiva della conversione.
+
+## Preparazione della voce (versione 1.8.1)
+
+La conversione prepara automaticamente un tratto continuo di massimo 10 secondi
+dal riferimento parlato, privilegiando attività vocale e volume uniforme. Evita
+il silenzio iniziale e conserva un breve margine attorno alle parole. Il campione
+caricato resta intatto: selezione e guadagno sono registrati nella sessione.
+Un riferimento vuoto o praticamente silenzioso viene segnalato.
+
+Il canto viene preparato con margine di volume e suddiviso in segmenti di massimo
+18 secondi. Canto e riferimento occupano così meno dei 30 secondi del contesto
+del sintetizzatore: un riferimento lungo non forza più numerosi raccordi interni
+da circa cinque secondi. Il contenuto Whisper resta anch'esso sotto il suo limite.
+La guida della sintesi passa da 0,7 a 0,4 per ridurre i picchi e le forzature;
+la scelta 30/50/100 passaggi rimane disponibile. L'intonazione è conservata,
+senza trasposizione né adattamento alla frequenza della registrazione parlata.
+
+I raccordi usano pesi a coseno che sommano a uno, senza aggiungere campioni,
+allungare la voce o spostare la base. La stessa preparazione vale per Cambia voce,
+la spunta Clona nello Studio, Base originale e la conversione dopo separazione,
+su CPU e GPU. I risultati già completati restano invariati; per applicarla serve
+una nuova conversione. Il motore e i pesi non richiedono altri download.
+
+Sull'ultima Dragon Ball Z con voce personale, a 100 passaggi, il campione completo
+di circa 119 secondi conserva 5.252.098 campioni vocali a 44,1 kHz. I campioni
+saturati passano da 629 nel risultato precedente a zero nel nuovo; tutti i segmenti
+nativi misurati sono privi di saturazione. Sorgente, riferimento e tracce separate
+conservano gli stessi SHA-256. Il mix rimane stereo a 48 kHz e mantiene la durata.
+Questi numeri dimostrano la riduzione della saturazione in quel campione, non
+l'eliminazione di ogni artefatto del modello né una migliore somiglianza certificata.

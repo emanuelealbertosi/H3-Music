@@ -1,4 +1,4 @@
-import pathlib,sys,tempfile,unittest,json,shutil,wave,array
+import pathlib,sys,tempfile,unittest,json,shutil,wave,array,math,subprocess,hashlib
 from unittest.mock import patch
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]))
 import app,cloning
@@ -46,6 +46,8 @@ class CloningTests(unittest.TestCase):
    for steps in (30,50,100):
     args=cloning.voice_command(app,'a','b','c',{'backend':backend,'threads':2},steps)
     self.assertIn(f'num_inference_steps={steps}',args)
+    self.assertIn('inference_guidance_scale=0.4',args)
+    self.assertIn('seed=831001',args)
     self.assertEqual(args[args.index('--backend')+1],backend)
  def test_voice_quality_all_long_segments(self):
   job,d=self.queued();job['request']['voice_steps']=100;source=d/'source.wav';calls=[]
@@ -53,7 +55,7 @@ class CloningTests(unittest.TestCase):
   def info(path):
    if path==source:return {'duration':60}
    index=int(path.name.split('-')[0]);a,b=parts[index];return {'duration':(b-a)/cloning.VOICE_RATE}
-  with patch.object(app,'audio_info',side_effect=info),patch.object(app,'run_job_process',side_effect=lambda j,d,args,**kw:calls.append(args)),patch.object(cloning,'quiet_voice_segment',return_value=False),patch.object(cloning,'join_voice_segments'):
+  with patch.object(cloning,'prepare_reference',return_value=d/'ref.wav'),patch.object(cloning,'prepare_voice_input',return_value=source),patch.object(app,'audio_info',side_effect=info),patch.object(app,'run_job_process',side_effect=lambda j,d,args,**kw:calls.append(args)),patch.object(cloning,'quiet_voice_segment',return_value=False),patch.object(cloning,'join_voice_segments'):
    cloning.convert_voice(app,job,d,source,d/'ref.wav',d/'voice.wav',{'backend':'cpu','threads':2})
   svc=[args for args in calls if '--task' in args]
   self.assertEqual(len(svc),len(parts));self.assertTrue(all('num_inference_steps=100' in args for args in svc))
@@ -82,7 +84,8 @@ class CloningTests(unittest.TestCase):
    else:pathlib.Path(args[-1]).write_bytes(b'normalized')
   def mix(*args,**kw):
    self.assertEqual(kw['source'],d/'stems');kw['runner'](['fake mix',str(d/'audio.wav')]);return d/'audio.wav'
-  with patch.object(cloning,'preflight',return_value=app.voice_sample(self.voice['name'])),patch.object(app,'run_job_process',side_effect=run),patch.object(app,'mix_voice',side_effect=mix),patch.object(app,'audio_info',return_value={'duration':12}):
+  def convert(a,j,folder,source,reference,output,settings):a.run_job_process(j,folder,cloning.voice_command(a,source,reference,output,settings))
+  with patch.object(cloning,'convert_voice',side_effect=convert),patch.object(cloning,'preflight',return_value=app.voice_sample(self.voice['name'])),patch.object(app,'run_job_process',side_effect=run),patch.object(app,'mix_voice',side_effect=mix),patch.object(app,'audio_info',return_value={'duration':12}):
    if missing:
     with self.assertRaisesRegex(RuntimeError,'incompleta'):cloning.process(app,job,d)
    elif cancel:
@@ -117,12 +120,69 @@ class CloningTests(unittest.TestCase):
   self.assertNotIn(str(d/'stems/vocals.wav'),calls[-1]);self.assertIn(str(d/'stems/other.wav'),calls[-1])
   self.assertTrue((d/'manifest.json').exists());self.assertFalse((d/'voce.wav').exists())
  def test_long_voice_segments_cover_every_sample(self):
-  for seconds in (1,25,25.001,49.6,60,173.662,1800):
+  for seconds in (1,18,18.001,25,25.001,49.6,60,149.999,150,150.001,173.662,240,1800):
    frames=round(seconds*cloning.VOICE_RATE);parts=cloning.voice_segments(frames)
    self.assertEqual(parts[0][0],0);self.assertEqual(parts[-1][1],frames)
    self.assertTrue(all(0<b-a<=cloning.VOICE_WINDOW for a,b in parts))
    for previous,current in zip(parts,parts[1:]):self.assertEqual(previous[1]-current[0],cloning.VOICE_OVERLAP)
    self.assertEqual(sum(b-a for a,b in parts)-(len(parts)-1)*cloning.VOICE_OVERLAP,frames)
+   self.assertTrue(all((b-a)/cloning.VOICE_RATE+cloning.REFERENCE_SECONDS<30 for a,b in parts))
+ def test_reference_selection_avoids_leading_silence_and_leaves_context(self):
+  rate=cloning.VOICE_RATE;values=array.array('h',[0])*(4*rate)
+  values.extend(round(6000*math.sin(2*math.pi*160*i/rate)) for i in range(8*rate));values.extend(array.array('h',[0])*(8*rate))
+  path=app.DATA/'spoken.wav'
+  with wave.open(str(path),'wb') as f:f.setparams((1,2,rate,0,'NONE','not compressed'));f.writeframes(values.tobytes())
+  selected=cloning.reference_window(path)
+  self.assertGreaterEqual(selected['start_sample']/rate,3.8)
+  self.assertLessEqual(selected['end_sample']/rate,12.2)
+  self.assertLessEqual(selected['duration'],10)
+  self.assertLessEqual(selected['peak']*10**(selected['gain_db']/20),.75)
+  self.assertLess(cloning.VOICE_WINDOW/rate+selected['duration'],30)
+ def test_reference_selection_rejects_silence_and_preserves_short_samples(self):
+  rate=cloning.VOICE_RATE;path=app.DATA/'short.wav'
+  for level in (0,1000):
+   values=array.array('h',(round(level*math.sin(2*math.pi*140*i/rate)) for i in range(rate)))
+   with wave.open(str(path),'wb') as f:f.setparams((1,2,rate,0,'NONE','not compressed'));f.writeframes(values.tobytes())
+   if level:self.assertAlmostEqual(cloning.reference_window(path)['duration'],1)
+   else:
+    with self.assertRaisesRegex(ValueError,'silenzioso'):cloning.reference_window(path)
+ def prepared_conversion(self,silent=False):
+  job,d=self.queued();rate=cloning.VOICE_RATE;source=d/'source.wav';reference=d/'sample.wav'
+  for path,seconds,level in ((source,4,0 if silent else 8000),(reference,12,3000)):
+   values=array.array('h',(round(level*math.sin(2*math.pi*150*i/rate)) for i in range(seconds*rate)))
+   with wave.open(str(path),'wb') as f:f.setparams((1,2,rate,0,'NONE','not compressed'));f.writeframes(values.tobytes())
+  hashes=[hashlib.sha256(p.read_bytes()).hexdigest() for p in (source,reference)];commands=[]
+  def run(j,folder,args,**kw):
+   app.check_cancel(j['id'])
+   if '--task' in args:
+    commands.append(args);shutil.copy2(args[args.index('--audio')+1],args[args.index('--out')+1])
+   else:
+    with (folder/'engine.log').open('ab') as log:subprocess.run(args,stdout=log,stderr=log,check=True,creationflags=app.HIDDEN)
+  with patch.object(app,'run_job_process',side_effect=run):cloning.convert_voice(app,job,d,source,reference,d/'converted.wav',{'backend':'cpu','threads':2})
+  self.assertEqual(len(commands),0 if silent else 1)
+  with wave.open(str(d/'converted.wav'),'rb') as f:
+   self.assertEqual(f.getnframes(),4*rate)
+   if silent:self.assertEqual(set(f.readframes(f.getnframes())),{0})
+  with wave.open(str(d/'voice-reference.wav'),'rb') as f:self.assertLessEqual(f.getnframes(),10*rate)
+  self.assertEqual(hashes,[hashlib.sha256(p.read_bytes()).hexdigest() for p in (source,reference)])
+  manifest=json.loads((d/'voice-segments.json').read_text())
+  self.assertEqual(manifest['quiet_passthrough'],[0] if silent else [])
+  if commands:self.assertIn('seed=0',commands[0])
+ def test_short_conversion_prepares_reference_without_modifying_uploads(self):self.prepared_conversion()
+ def test_short_silence_bypasses_native_conversion(self):self.prepared_conversion(silent=True)
+ def test_source_preparation_retains_headroom_for_float_audio(self):
+  job,d=self.queued();source=d/'hot.wav'
+  subprocess.run([str(app.FFMPEG),'-y','-v','error','-f','lavfi','-i','sine=frequency=440:duration=1','-af','volume=12','-c:a','pcm_f32le',str(source)],check=True,creationflags=app.HIDDEN)
+  digest=hashlib.sha256(source.read_bytes()).hexdigest()
+  def run(j,folder,args,**kw):
+   with (folder/'engine.log').open('ab') as log:subprocess.run(args,stdout=log,stderr=subprocess.STDOUT,check=True,creationflags=app.HIDDEN)
+  with patch.object(app,'run_job_process',side_effect=run):
+   out=cloning.prepare_voice_input(app,job,d,source)
+  with wave.open(str(out),'rb') as f:
+   self.assertEqual(f.getnframes(),cloning.VOICE_RATE);values=array.array('h');values.frombytes(f.readframes(f.getnframes()))
+  self.assertLess(max(abs(x) for x in values)/32768,.72)
+  self.assertLess(json.loads((d/'voice-input.json').read_text())['gain_db'],0)
+  self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(),digest)
  def test_crossfade_preserves_timing_and_late_content(self):
   paths=[];n=cloning.VOICE_OVERLAP
   for i,level in enumerate((1000,2000,3000)):

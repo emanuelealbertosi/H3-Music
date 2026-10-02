@@ -20,7 +20,7 @@ import execution
 import model_store
 from scripts import macos_space
 
-RELEASE = 'v1.8.0-macos-preview.1'
+RELEASE = 'v1.8.1-macos-preview.1'
 DOWNLOAD = 'https://github.com/emanuelealbertosi/H3-Music/releases/download/' + RELEASE
 
 

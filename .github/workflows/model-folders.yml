@@ -20,6 +20,16 @@ jobs:
         run: python tests/model_folder_checks.py
       - name: Verify singing on the original accompaniment
         run: python tests/test_resinging.py
+      - name: Verify voice reference and exact segment timing
+        run: >-
+          python tests/test_cloning.py
+          CloningTests.test_reference_selection_avoids_leading_silence_and_leaves_context
+          CloningTests.test_reference_selection_rejects_silence_and_preserves_short_samples
+          CloningTests.test_long_voice_segments_cover_every_sample
+          CloningTests.test_crossfade_preserves_timing_and_late_content
+          CloningTests.test_crossfade_cancel_does_not_continue
+          CloningTests.test_near_silent_tail_is_not_synthesized
+          CloningTests.test_voice_quality_commands_cpu_and_gpu
       - name: Verify notation, optional adapters and lyric adaptation
         run: |
           python tests/test_transcription_notation.py

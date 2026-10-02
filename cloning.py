@@ -1,5 +1,5 @@
 """Reference upload and automatic voice replacement, with no music regeneration for imports."""
-import hashlib,json,shutil,math,array,sys,wave
+import hashlib,json,shutil,math,array,sys,wave,statistics
 import transcription, mixing, platform_runtime
 
 def voice_steps(value=30):
@@ -63,7 +63,7 @@ def process(app,job,d):
  convert_voice(app,job,d,stems/'vocals.wav',reference,converted,s)
  app.check_cancel(job['id'])
  final=app.mix_voice(job,d,converted,source=stems,runner=lambda args:app.run_job_process(job,d,args,append=True,phase=('Rimix con la base',95)))
- app.check_cancel(job['id']);result=app.audio_info(final)|{'voice':req['clone_voice'],'cloned':True,'pitch_conditioning':True,'voice_pipeline':'segmented-v1','original_preserved':True,'source_kind':'import' if job['kind']=='clone' else 'generated'}
+ app.check_cancel(job['id']);result=app.audio_info(final)|{'voice':req['clone_voice'],'cloned':True,'pitch_conditioning':True,'voice_pipeline':'prepared-segmented-v2','original_preserved':True,'source_kind':'import' if job['kind']=='clone' else 'generated'}
  result['voice_steps']=voice_steps(req.get('voice_steps',30))
  if job['kind'] in ('clone','instrumental'):result['import_id']=req['import_id']
  def digest(p):
@@ -72,15 +72,71 @@ def process(app,job,d):
  return result
 
 
-def voice_command(app,source,reference,output,settings=None,steps=30):
+def voice_command(app,source,reference,output,settings=None,steps=30,seed=831001):
  s=settings or app.settings()
  # The singing checkpoint needs pitch conditioning; the native default is false.
- return [str(app.ENGINE),'--task','svc','--family','seed_vc','--model',str(app.voice_model()),'--backend',s['backend'],'--threads',str(s['threads']),'--task-route','v1_svc','--request-option',f'num_inference_steps={voice_steps(steps)}','--request-option','f0_condition=true','--request-option','auto_f0_adjust=false','--request-option','semitone_shift=0','--audio',str(source),'--voice-ref',str(reference),'--out',str(output),'--log','--metrics']
+ return [str(app.ENGINE),'--task','svc','--family','seed_vc','--model',str(app.voice_model()),'--backend',s['backend'],'--threads',str(s['threads']),'--task-route','v1_svc','--request-option',f'num_inference_steps={voice_steps(steps)}','--request-option',f'seed={int(seed)}','--request-option',f'inference_guidance_scale={VOICE_GUIDANCE}','--request-option','f0_condition=true','--request-option','auto_f0_adjust=false','--request-option','semitone_shift=0','--audio',str(source),'--voice-ref',str(reference),'--out',str(output),'--log','--metrics']
 
 
 VOICE_RATE=44100
-VOICE_WINDOW=25*VOICE_RATE
+VOICE_WINDOW=18*VOICE_RATE
 VOICE_OVERLAP=int(.4*VOICE_RATE)
+REFERENCE_SECONDS=10
+VOICE_GUIDANCE=.4
+
+def reference_window(path):
+ # Select a continuous, voiced and reasonably steady excerpt, never concatenate
+ # words or train on the silences that happen to begin the uploaded recording.
+ with wave.open(str(path),'rb') as inp:
+  if (inp.getnchannels(),inp.getsampwidth(),inp.getframerate())!=(1,2,VOICE_RATE):raise ValueError('Formato del campione vocale non valido.')
+  values=array.array('h');values.frombytes(inp.readframes(inp.getnframes()))
+ if sys.byteorder!='little':values.byteswap()
+ if not values:raise ValueError('Il campione vocale è vuoto.')
+ block=round(VOICE_RATE*.05);energies=[]
+ for i in range(0,len(values),block):
+  part=values[i:i+block];energies.append(math.sqrt(sum(x*x for x in part)/len(part))/32768)
+ ordered=sorted(energies)
+ # A continuous spoken sample may have no quiet blocks: cap the noise estimate
+ # against its loud blocks so that steady speech is not all labelled inactive.
+ threshold=max(.005,min(ordered[len(ordered)//10]*3,ordered[int(.9*(len(ordered)-1))]*.2))
+ window=min(len(values),REFERENCE_SECONDS*VOICE_RATE);width=math.ceil(window/block)
+ starts=list(range(0,max(1,len(values)-window+1),round(VOICE_RATE*.25)))
+ if starts[-1]!=len(values)-window:starts.append(len(values)-window)
+ def score(start):
+  part=energies[start//block:start//block+width];median=statistics.median(part)
+  variation=sorted(part)[min(len(part)-1,int(.9*len(part)))]/max(median,.001)
+  return sum(x>threshold for x in part)/len(part)-.06*math.log2(max(1,variation))
+ start=max(starts,key=score);end=start+window
+ active=[i for i in range(start//block,min(len(energies),math.ceil(end/block))) if energies[i]>threshold]
+ if active:
+  start=max(start,active[0]*block-round(.15*VOICE_RATE))
+  end=min(end,(active[-1]+1)*block+round(.15*VOICE_RATE))
+ part=values[start:end];window=len(part)
+ rms=math.sqrt(sum(x*x for x in part)/len(part))/32768;peak=max(abs(x) for x in part)/32768
+ if rms<.001 or peak<.005:raise ValueError('Il campione è troppo debole o silenzioso: usa una registrazione parlata chiara.')
+ # Modest reference loudness leaves the vocoder room to synthesize without
+ # flattening its peaks. Final loudness matching remains the mixer's task.
+ factor=min(.04/rms,.75/peak,10.)
+ return {'start_sample':start,'end_sample':start+window,'duration':window/VOICE_RATE,
+         'gain_db':20*math.log10(factor),'rms':rms,'peak':peak,'activity_threshold':threshold}
+
+def prepare_reference(app,job,d,reference):
+ run=lambda args:app.run_job_process(job,d,args,append=True,phase=('Preparazione del riferimento vocale',56))
+ full=d/'voice-reference-full.wav';selected=d/'voice-reference.wav'
+ run([str(app.FFMPEG),'-y','-v','error','-nostdin','-protocol_whitelist','file,pipe','-i',str(reference),'-ar',str(VOICE_RATE),'-ac','1','-c:a','pcm_s16le',str(full)])
+ selection=reference_window(full);app.check_cancel(job['id'])
+ filters=f'atrim=start_sample={selection["start_sample"]}:end_sample={selection["end_sample"]},asetpts=PTS-STARTPTS,volume={selection["gain_db"]:.8f}dB'
+ run([str(app.FFMPEG),'-y','-v','error','-nostdin','-i',str(full),'-af',filters,'-ar',str(VOICE_RATE),'-ac','1','-c:a','pcm_s16le',str(selected)])
+ app.write_json(d/'voice-reference.json',selection)
+ return selected
+
+def prepare_voice_input(app,job,d,source):
+ run=lambda args:app.run_job_process(job,d,args,append=True,phase=('Preparazione del canto per la conversione',58))
+ stats=mixing.measure(app,source,d,run);gain=min(0.,-3.-stats['peak_db']) if stats['peak_db'] is not None else 0.
+ path=d/'voice-input.wav'
+ run([str(app.FFMPEG),'-y','-v','error','-nostdin','-i',str(source),'-af',f'volume={gain:.8f}dB','-ar',str(VOICE_RATE),'-ac','1','-c:a','pcm_s16le',str(path)])
+ app.write_json(d/'voice-input.json',{'gain_db':gain,'source_level':stats,'sample_rate':VOICE_RATE})
+ return path
 
 def voice_segments(frames):
  # Bundled native Whisper content extraction truncates at 30 seconds.
@@ -106,7 +162,12 @@ def join_voice_segments(paths,output,check_cancel):
    if pending:
     n=len(pending)
     if len(samples)<n:raise ValueError('Segmento vocale troppo corto.')
-    blended=array.array('h',(round(pending[i]*(1-i/(n-1))+samples[i]*i/(n-1)) for i in range(n)))
+    # Raised-cosine weights sum to one and have flat endpoints: preserve gain
+    # and sample count without a slope discontinuity at either end of the join.
+    blended=array.array('h')
+    for i in range(n):
+     weight=.5-.5*math.cos(math.pi*i/(n-1)) if n>1 else .5
+     blended.append(round(pending[i]*(1-weight)+samples[i]*weight))
     if sys.byteorder!='little':blended.byteswap()
     out.writeframes(blended.tobytes());samples=samples[n:]
    pending=samples[-VOICE_OVERLAP:] if index<len(paths)-1 else array.array('h')
@@ -124,11 +185,11 @@ def quiet_voice_segment(path):
 def convert_voice(app,job,d,source,reference,output,settings=None):
  settings=settings or app.settings()
  steps=voice_steps(job['request'].get('voice_steps',30))
+ reference=prepare_reference(app,job,d,reference)
+ source=prepare_voice_input(app,job,d,source)
  duration=app.audio_info(source)['duration']
  if not math.isfinite(duration) or duration<=0:raise ValueError('La traccia vocale è vuota.')
  segments=voice_segments(round(duration*VOICE_RATE))
- if len(segments)==1:
-  app.run_job_process(job,d,voice_command(app,source,reference,output,settings,steps),append=True,phase=(f'Applicazione della tua voce · {steps} passaggi',65));return
  folder=d/'voice-segments';folder.mkdir(exist_ok=True);paths=[];quiet=[]
  for index,(start,end) in enumerate(segments):
   app.check_cancel(job['id']);src=folder/f'{index:03d}-source.wav';raw=folder/f'{index:03d}-raw.wav';aligned=folder/f'{index:03d}.wav'
@@ -136,11 +197,11 @@ def convert_voice(app,job,d,source,reference,output,settings=None):
   app.run_job_process(job,d,[str(app.FFMPEG),'-y','-v','error','-nostdin','-i',str(source),'-af',f'aresample={VOICE_RATE},atrim=start_sample={start}:end_sample={end},asetpts=PTS-STARTPTS','-ar',str(VOICE_RATE),'-ac','1',str(src)],append=True,phase=phase)
   if quiet_voice_segment(src):
    shutil.copy2(src,aligned);paths.append(aligned);quiet.append(index);continue
-  app.run_job_process(job,d,voice_command(app,src,reference,raw,settings,steps),append=True,phase=phase)
+  app.run_job_process(job,d,voice_command(app,src,reference,raw,settings,steps,job['request'].get('seed',831001)),append=True,phase=phase)
   # The vocoder rounds to mel hops; only pad/trim the tiny rounding difference.
   produced=app.audio_info(raw)['duration']
   if abs(produced-(end-start)/VOICE_RATE)>.25:raise RuntimeError('Durata della voce convertita incoerente: il rimix è stato fermato.')
   app.run_job_process(job,d,[str(app.FFMPEG),'-y','-v','error','-nostdin','-i',str(raw),'-af',f'apad=whole_len={end-start},atrim=end_sample={end-start}','-ar',str(VOICE_RATE),'-ac','1','-c:a','pcm_s16le',str(aligned)],append=True,phase=phase)
   paths.append(aligned)
  join_voice_segments(paths,output,lambda:app.check_cancel(job['id']))
- app.write_json(d/'voice-segments.json',{'sample_rate':VOICE_RATE,'voice_steps':steps,'overlap_samples':VOICE_OVERLAP,'quiet_passthrough':quiet,'segments':[{'start_sample':a,'end_sample':b} for a,b in segments]})
+ app.write_json(d/'voice-segments.json',{'sample_rate':VOICE_RATE,'voice_steps':steps,'seed':job['request'].get('seed',831001),'inference_guidance_scale':VOICE_GUIDANCE,'overlap_samples':VOICE_OVERLAP,'max_window_seconds':VOICE_WINDOW/VOICE_RATE,'reference_seconds':REFERENCE_SECONDS,'crossfade':'raised-cosine','pipeline':'prepared-segmented-v2','quiet_passthrough':quiet,'segments':[{'start_sample':a,'end_sample':b} for a,b in segments]})
