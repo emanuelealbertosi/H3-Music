@@ -119,6 +119,43 @@ class ApiTests(unittest.TestCase):
    app.llm('/chat/completions',self.payload())
    sent=json.loads(factory.return_value.open.call_args.args[0].data)
    self.assertEqual(sent['max_completion_tokens'],100);self.assertNotIn('max_tokens',sent);self.assertNotIn('temperature',sent)
+ def test_openrouter_disables_optional_reasoning_in_actual_request(self):
+  base='https://openrouter.ai/api/v1'
+  assistant_api.save_preferences(app,self.settings|{'llm_api_url':base,'llm_api_model':'kimi'},{'llm_api_key':'fake-router'})
+  assistant_api.remember_models(base,{'data':[{'id':'kimi','reasoning':{'mandatory':False,'default_effort':'max','supported_efforts':['low','high','max']}}]})
+  with patch.object(assistant_api.urllib.request,'build_opener') as factory:
+   factory.return_value.open.return_value.__enter__.return_value.read.return_value=b'{"choices":[{"message":{"content":"{}"}}]}'
+   payload=self.payload();app.llm('/chat/completions',payload)
+   factory.return_value.open.assert_called_once()
+   sent=json.loads(factory.return_value.open.call_args.args[0].data)
+   self.assertEqual(sent['reasoning'],{'enabled':False,'exclude':True});self.assertGreaterEqual(sent['max_tokens'],1024)
+   self.assertNotIn('reasoning',payload);self.assertEqual(payload['max_tokens'],100)
+ def test_mandatory_reasoning_uses_only_supported_controls_and_reserves_output(self):
+  for metadata,expected in (({'mandatory':True,'supported_efforts':['max','high','low']},{'exclude':True,'effort':'low'}),({'mandatory':True},{'exclude':True}),({'mandatory':True,'supports_max_tokens':True},{'exclude':True,'max_tokens':1024})):
+   with self.subTest(metadata=metadata):
+    body=self.payload();assistant_api.prepare_openrouter(body,{'reasoning':metadata})
+    self.assertEqual(body['reasoning'],expected);self.assertGreaterEqual(body['max_tokens'],4096)
+  body=self.payload();assistant_api.prepare_openrouter(body,{'reasoning':{'mandatory':True,'supports_max_tokens':True},'top_provider':{'max_completion_tokens':512}})
+  self.assertEqual(body['max_tokens'],512);self.assertNotIn('max_tokens',body['reasoning'])
+ def test_unknown_metadata_and_other_providers_preserve_payload(self):
+  body=self.payload();before=dict(body);assistant_api.prepare_openrouter(body,None);self.assertEqual(body,before)
+  app.llm('/chat/completions',body);self.assertNotIn('reasoning',self.calls[-1][2]);self.assertEqual(self.calls[-1][2]['max_tokens'],100)
+ def test_reasoning_exhaustion_and_malformed_choices_are_safe_errors(self):
+  self.reply=lambda path,body:(200,{'choices':[{'finish_reason':'length','message':{'content':'','reasoning':'private thinking'}}],'usage':{'completion_tokens':360,'completion_tokens_details':{'reasoning_tokens':360}}})
+  with self.assertRaisesRegex(ValueError,'360 token di ragionamento') as error:app.llm('/chat/completions',self.payload())
+  self.assertNotIn('private thinking',str(error.exception))
+  for choices in ({'unexpected':'value'},[None],[{'message':None}]):
+   self.reply=lambda path,body:(200,{'choices':choices})
+   with self.subTest(choices=choices),self.assertRaises(ValueError):app.llm('/chat/completions',self.payload())
+ def test_capabilities_lookup_is_public_cached_and_failure_is_optional(self):
+  base='https://openrouter.ai/api/v1/cache-test'
+  with patch.object(assistant_api.urllib.request,'build_opener') as factory:
+   factory.return_value.open.return_value.__enter__.return_value.read.return_value=b'{"data":[{"id":"kimi","reasoning":{"mandatory":false}}]}'
+   self.assertEqual(assistant_api.openrouter_model(base,'kimi')['reasoning'],{'mandatory':False})
+   self.assertIsNotNone(assistant_api.openrouter_model(base,'kimi'));factory.return_value.open.assert_called_once_with(base+'/models',timeout=15)
+  with patch.object(assistant_api.urllib.request,'build_opener') as factory:
+   factory.return_value.open.side_effect=OSError('Offline')
+   self.assertIsNone(assistant_api.openrouter_model(base+'/offline','kimi'))
  def test_failed_adaptation_records_error_without_prompt_or_key(self):
   with patch.object(lyric_meter,'adapt',side_effect=ValueError('API rejected fake-secret')):
    with self.assertRaises(ValueError):app.assistant_operation('lyrics/adapt',{'request':{'lyrics':'private words'}})

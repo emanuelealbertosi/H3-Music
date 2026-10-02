@@ -40,10 +40,15 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),http
   // Failure stays in the dialog's top layer after the background toast expires.
   authFailure=true;await p.locator('#lyrics-meter').click();await p.locator('#meter-mode').waitFor();await p.locator('#meter-run').click();
   await p.locator('#modal-error').waitFor();assert.match(await p.locator('#modal-error').innerText(),/Chiave API/);
+  await p.locator('#error-popup').waitFor();assert.equal(await p.locator('#error-popup').evaluate(e=>e.open),true);
+  assert.equal(await p.locator('#error-popup-message').evaluate(e=>{const r=e.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return hit===e||e.contains(hit)}),true);
+  assert.equal(await p.locator('#error-popup').evaluate(e=>getComputedStyle(e).filter),'none');
+  await p.screenshot({path:require('node:path').join(process.env.H3_TEST_OUTPUT||require('node:os').tmpdir(),'h3-api-error-popup.png')});
   await p.waitForTimeout(9500);assert.equal(await p.locator('#modal-error').isVisible(),true);assert.equal(await p.locator('#modal').evaluate(e=>e.open),true);
   assert.equal(await p.locator('#meter-proposal').count(),0);assert.equal(await p.locator('#lyrics').inputValue(),'[Verse]\nCanto');
+  await p.locator('#error-popup-dismiss').click();assert.equal(await p.locator('#modal-error').isVisible(),true);
   authFailure=false;await p.locator('#meter-run').click();await p.locator('#meter-apply').waitFor();assert.equal(await p.locator('#modal-error').count(),0);await p.locator('#modal .close').click();
-  authFailure=true;await p.locator('#assist').click();await p.locator('#instruction').fill('Riprova');await p.locator('#ai-run').click();await p.locator('#modal-error').waitFor();assert.match(await p.locator('#modal-error').innerText(),/Chiave API/);await p.locator('#modal .close').click();
+  authFailure=true;await p.locator('#assist').click();await p.locator('#instruction').fill('Riprova');await p.locator('#ai-run').click();await p.locator('#modal-error').waitFor();assert.match(await p.locator('#modal-error').innerText(),/Chiave API/);await p.locator('#error-popup-dismiss').click();await p.locator('#modal .close').click();
   await p.locator('[data-page="system"]').click();authFailure=true;await p.locator('#api-models').click();await p.waitForFunction(()=>document.querySelector('#api-assistant-status').textContent.includes('Chiave API'));
   await p.locator('#s-api-clear-key').check();await p.locator('#preferences').click();
   await p.waitForFunction(()=>document.querySelector('#api-key-status').textContent.includes('viene salvata'));

@@ -4,12 +4,15 @@ import copy
 import json
 import socket
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
 _session=threading.local()
 KEYS_ROW='assistant-api-keys'
+_models_cache={}
+_models_lock=threading.Lock()
 
 def active(app):return getattr(_session,'root',None)==app.ROOT and getattr(_session,'config',None) is not None
 
@@ -84,6 +87,52 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
  def redirect_request(self,req,fp,code,msg,headers,newurl):return None
 
 
+def remember_models(base,result):
+ entries=result.get('data')
+ if not isinstance(entries,list):return
+ models={m['id']:{'reasoning':m.get('reasoning'),'top_provider':m.get('top_provider',{})} for m in entries if isinstance(m,dict) and isinstance(m.get('id'),str)}
+ with _models_lock:_models_cache[base]=(time.monotonic(),models)
+
+
+def openrouter_model(base,model):
+ """Public capabilities: cache metadata only, never credentials or prompts."""
+ with _models_lock:cached=_models_cache.get(base)
+ if cached and time.monotonic()-cached[0]<900:return cached[1].get(model)
+ try:
+  with urllib.request.build_opener(NoRedirect()).open(base+'/models',timeout=15) as response:raw=response.read(8*1024*1024+1)
+  if len(raw)>8*1024*1024:return None
+  result=json.loads(raw)
+  if not isinstance(result,dict):return None
+  remember_models(base,result)
+  with _models_lock:cached=_models_cache.get(base)
+  return cached[1].get(model) if cached else None
+ except (OSError,ValueError,UnicodeError):return None
+
+
+def prepare_openrouter(body,capabilities):
+ reasoning=capabilities.get('reasoning') if capabilities else None
+ if isinstance(reasoning,dict):
+  limit=body.get('max_tokens',6000)
+  if reasoning.get('mandatory') is False:
+   # Short structural answers must not spend their whole budget on thinking.
+   body['reasoning']={'enabled':False,'exclude':True}
+   body['max_tokens']=max(limit,1024)
+  elif reasoning.get('mandatory') is True:
+   config={'exclude':True}
+   if reasoning.get('supports_max_tokens') is True:config['max_tokens']=1024
+   else:
+    efforts=reasoning.get('supported_efforts')
+    lowest=next((e for e in ('minimal','low','medium','high','xhigh','max') if isinstance(efforts,list) and e in efforts),None)
+    if lowest:config['effort']=lowest
+   body['reasoning']=config;body['max_tokens']=max(limit+2048,4096)
+ top=capabilities.get('top_provider',{}) if capabilities else {}
+ maximum=top.get('max_completion_tokens') if isinstance(top,dict) else None
+ if type(maximum)==int and maximum>0 and 'max_tokens' in body:body['max_tokens']=min(body['max_tokens'],maximum)
+ if body.get('reasoning',{}).get('max_tokens',0)>=body.get('max_tokens',6000):
+  # A constrained provider may not accept a separate thinking budget.
+  body['reasoning'].pop('max_tokens',None)
+
+
 def request(app,path,payload=None,timeout=None):
  if path not in ('/models','/chat/completions'):raise ValueError('Questa operazione richiede LM Studio locale.')
  settings,base,key=configuration(app);host=urllib.parse.urlsplit(base).hostname
@@ -104,6 +153,7 @@ def request(app,path,payload=None,timeout=None):
    body['max_completion_tokens']=body.pop('max_tokens')
    # Reasoning models may reject sampling controls. Keep the provider default.
    body.pop('temperature',None)
+  if host=='openrouter.ai':prepare_openrouter(body,openrouter_model(base,body['model']))
  opener=urllib.request.build_opener(NoRedirect())
  for attempt in range(3):
   req=urllib.request.Request(base+path,data=app.jdump(body).encode('utf-8') if body is not None else None,headers=headers)
@@ -115,13 +165,21 @@ def request(app,path,payload=None,timeout=None):
    except (ValueError,UnicodeError):raise ValueError('Il servizio API non ha restituito JSON. Controlla l’indirizzo in Sistema.')
    if not isinstance(result,dict) or result.get('error'):raise ValueError('Il servizio API ha restituito una risposta non valida.')
    if path=='/models':
+    if host=='openrouter.ai':remember_models(base,result)
     entries=result.get('data')
     if not isinstance(entries,list):raise ValueError('Il servizio non espone una lista di modelli compatibile. Inserisci il modello manualmente in Sistema.')
     return {'data':[{'id':m['id']} for m in entries if isinstance(m,dict) and isinstance(m.get('id'),str)]}
-   choices=result.get('choices');message=choices[0].get('message',{}) if isinstance(choices,list) and choices and isinstance(choices[0],dict) else {}
+   choices=result.get('choices');choice=choices[0] if isinstance(choices,list) and choices and isinstance(choices[0],dict) else {}
+   message=choice.get('message',{});message=message if isinstance(message,dict) else {}
    if message.get('refusal'):raise ValueError('Il servizio API ha rifiutato questa richiesta. Modifica le indicazioni e riprova.')
+   if choice.get('finish_reason')=='length':
+    usage=result.get('usage',{});details=usage.get('completion_tokens_details',{}) if isinstance(usage,dict) else {}
+    thought=details.get('reasoning_tokens',0) if isinstance(details,dict) else 0
+    total=usage.get('completion_tokens',0) if isinstance(usage,dict) else 0
+    if not message.get('content') and isinstance(thought,int) and thought>0:
+     raise ValueError(f'Il modello ha raggiunto il limite prima di restituire il testo: {thought} token di ragionamento su {total} token di risposta. La bozza è conservata.')
+    raise ValueError('La risposta API è stata troncata. Riduci la richiesta o scegli un altro modello; la bozza è conservata.')
    if not isinstance(message.get('content'),str) or not message['content'].strip():raise ValueError('Il modello API non ha restituito testo. Prova un modello per chat senza ragionamento prolungato.')
-   if choices[0].get('finish_reason')=='length':raise ValueError('La risposta API è stata troncata. Riduci la richiesta o scegli un altro modello; la bozza è conservata.')
    return result
   except urllib.error.HTTPError as error:
    try:

@@ -6,8 +6,20 @@ const blank=()=>({title:'',style:'',lyrics:'',abc:'',notes:'',cot:'full',seed:83
 let state={projects:[],jobs:[],settings:{},runtime:{}},page='studio',pid=null,draft=blank(),dirty=false,comparison=[],polling=false,detailId=null,studioResultSource=null;
 try{const s=JSON.parse(localStorage.getItem('h3-music-draft')||'null');if(s){draft=s.request;pid=s.id;studioResultSource=s.resultSource||null;dirty=true}}catch{}
 async function api(path,data){const r=await fetch('/api/'+path,{method:data?'POST':'GET',headers:data?{'Content-Type':'application/json','X-H3-Music':'1'}:{},body:data?JSON.stringify(data):undefined});const j=await r.json();if(!r.ok)throw Error(j.error||'Operazione non riuscita');return j}
-function toast(message,error=false){const t=$('#toast');t.textContent=message;t.className='show'+(error?' error':'');clearTimeout(t.timer);t.timer=setTimeout(()=>t.className='',error?9000:4000);if(error&&$('#modal').open){if(!$('#modal-error')){const box=document.createElement('div');box.id='modal-error';box.className='note modal-error';box.setAttribute('role','alert');box.innerHTML='<strong>Operazione non riuscita</strong><p id="modal-error-message"></p>';$('#modal-content').prepend(box)}$('#modal-error-message').textContent=message;$('#modal-error').scrollIntoView({block:'nearest'})}}
-function clearModalError(){$('#modal-error')?.remove()}
+function toast(message,error=false){
+ const t=$('#toast');clearTimeout(t.timer);
+ if(error&&$('#modal').open){
+  t.className='';
+  if(!$('#modal-error')){const box=document.createElement('div');box.id='modal-error';box.className='note modal-error';box.setAttribute('role','alert');box.innerHTML='<strong>Operazione non riuscita</strong><p id="modal-error-message"></p>';$('#modal-content').prepend(box)}
+  $('#modal-error-message').textContent=message;
+  let popup=$('#error-popup');
+  if(!popup){popup=document.createElement('dialog');popup.id='error-popup';popup.setAttribute('aria-labelledby','error-popup-title');popup.innerHTML='<h2 id="error-popup-title">Operazione non riuscita</h2><p id="error-popup-message" role="alert"></p><button id="error-popup-dismiss" class="btn primary" autofocus>Ho letto · chiudi</button>';document.body.append(popup);$('#error-popup-dismiss').onclick=()=>popup.close()}
+  $('#error-popup-message').textContent=message;if(!popup.open)popup.showModal();
+  return;
+ }
+ t.textContent=message;t.className='show'+(error?' error':'');t.timer=setTimeout(()=>t.className='',error?9000:4000);
+}
+function clearModalError(){$('#modal-error')?.remove();if($('#error-popup')?.open)$('#error-popup').close()}
 const safe=fn=>async e=>{try{await fn(e)}catch(err){toast(err.message,true)}};
 async function busy(b,fn){const old=b.innerHTML;b.disabled=true;b.innerHTML='<span class="spinner"></span> Attendi…';try{return await fn()}finally{if(b.isConnected){b.disabled=false;b.innerHTML=old}}}
 const date=t=>new Date(t*1000).toLocaleString('it-IT',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}),dur=s=>s?Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0'):'—';
@@ -22,7 +34,7 @@ async function preserve(){if(dirty&&(draft.title||draft.lyrics||draft.style))awa
 function download(url,name){const a=document.createElement('a');a.href=url+'?download=1';a.download=name||'';a.click()}
 function blobDownload(name,value,type='application/json'){const u=URL.createObjectURL(new Blob([typeof value==='string'?value:JSON.stringify(value,null,2)],{type})),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),10000)}
 function modal(html){$('#modal-content').innerHTML=html;if(!$('#modal').open)$('#modal').showModal()}
-function closeModal(){acknowledgeJobError();$$('#modal audio').forEach(a=>a.pause());$('#modal').close();detailId=null}
+function closeModal(){if($('#error-popup')?.open)$('#error-popup').close();acknowledgeJobError();$$('#modal audio').forEach(a=>a.pause());$('#modal').close();detailId=null}
 function show(name,readCurrent=true){if(readCurrent&&page==='studio')read();page=name in pages?name:'studio';location.hash=page;$$('nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$('#breadcrumb').innerHTML='Il tuo spazio creativo <span>/</span> '+pages[page];const result=({studio,voice:voicePage,transcribe,library,queue,system,guide})[page]();renderStudioErrors();if(result?.catch)result.catch(e=>toast(e.message,true))}
 const presets=[['Indie pop','English, indie pop, warm lead vocal, acoustic guitar, soft drums, round bass, uplifting chorus, 100 BPM'],['Cinematico','English, cinematic ballad, intimate vocals, piano, strings, orchestral crescendo, spacious production, 78 BPM'],['Jazz & soul','English, jazz soul, warm lead vocal, Rhodes, upright bass, brushed drums, extended chords, 90 BPM'],['Elettronica','English, synth pop, clear vocals, analog synthesizers, electronic drums, danceable bass, dreamy atmosphere, 118 BPM'],['Rock','English, alternative rock, expressive vocal, electric guitars, live drums, strong chorus, 125 BPM'],['Italiano','Italian, melodic pop, expressive Italian vocal, piano, acoustic guitar, warm bass, natural drums, 96 BPM'],['Voce femminile','Italian, pop, solo female lead vocal, bright clear timbre, airy high register, warm harmonies, piano and strings, 92 BPM'],['Voce maschile','Italian, soul pop, solo male lead vocal, deep warm baritone, slightly raspy, intimate verses, gospel choir on chorus, 84 BPM'],['Duetto','Italian, pop ballad, duet male and female alternating verses, united on the chorus, piano, strings, soft drums, 88 BPM']];
 const optLabels={cfg_scale:'Aderenza allo stile (CFG)',num_inference_steps:'Passi di sintesi',abc_temperature:'Spartito · temperatura',abc_top_p:'Spartito · top P',abc_top_k:'Spartito · top K',abc_repetition_penalty:'Spartito · penalità ripetizioni',abc_penalty_window:'Spartito · finestra penalità',abc_min_tokens:'Spartito · token minimi',abc_max_tokens:'Spartito · limite token',semantic_temperature:'Audio · temperatura',semantic_top_p:'Audio · top P',semantic_top_k:'Audio · top K',semantic_repetition_penalty:'Audio · penalità ripetizioni',semantic_penalty_window:'Audio · finestra penalità',semantic_min_tokens:'Audio · token minimi',semantic_max_tokens:'Audio · limite token'};
