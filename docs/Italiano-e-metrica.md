@@ -60,7 +60,7 @@ delle frasi prima di applicare **soltanto le parole** alla bozza.
 Il testo precedente rimane fino alla tua scelta; spartito, stile, base,
 LoRA e impostazioni non cambiano.
 
-Puoi scegliere **Assistente integrato** oppure **LM Studio esterno** in Sistema.
+Puoi scegliere **Assistente integrato**, **LM Studio esterno** oppure **API online** in Sistema.
 L’assistente integrato carica il modello solo durante la richiesta e lo scarica
 anche in caso di errore. I lavori audio accodati attendono che abbia liberato
 la memoria. Se un lavoro audio è già avviato, l’app chiede di attendere la sua conclusione.
@@ -102,6 +102,43 @@ Le sillabe sono una stima: sinalefi, iati e melismi dipendono dal canto.
 Le frasi fuori dall'intervallo sono segnalate anche dopo il tentativo di
 correzione. Il controllo non certifica gli accenti tonici di ogni parola;
 resta necessario ascoltare il risultato.
+
+## Assistente tramite API online
+
+In **Sistema → Assistente musicale → Motore del testo** scegli **API online**.
+Seleziona OpenAI, DeepSeek, OpenRouter oppure **Personalizzato · compatibile
+OpenAI**, inserisci l’indirizzo base del servizio e la tua chiave. Premi
+**Leggi modelli**, scegli un modello per testo/chat e poi **Salva preferenze**.
+Se il servizio non espone la lista, inserisci manualmente il suo identificativo.
+La lettura della lista non genera testo; assistente e adattamento possono
+consumare credito secondo il servizio e il modello scelti.
+
+La stessa selezione viene usata dall’**Assistente musicale** e da **Adatta alla
+melodia**. Testo, stile, indicazioni e spartito necessari alla richiesta vengono
+inviati al servizio; i file audio e i campioni vocali non vengono inviati.
+La trascrizione che prepara l’ABC rimane locale. Le API non occupano la VRAM
+con un modello del testo: la musica continua a essere generata da YuE2 sul PC.
+La proposta deve sempre essere letta e applicata esplicitamente alla bozza.
+
+La chiave viene conservata nel database locale dell’app, in una voce separata
+dalle preferenze pubbliche, e non viene restituita al browser né esportata nei
+progetti. Il database è escluso da Git; non è un archivio cifrato. Una chiave è
+associata al suo indirizzo API completo: cambiando servizio non viene inviata
+al nuovo indirizzo. Il campo vuoto conserva la chiave; per eliminarla seleziona
+**Rimuovi la chiave salvata quando salvi** e salva. I servizi remoti richiedono
+HTTPS; HTTP è ammesso solo per un server sullo stesso computer.
+
+**Compatibilità della risposta → Automatico** usa JSON strutturato quando
+supportato e passa a JSON semplice o istruzioni testuali soltanto se il servizio
+rifiuta esplicitamente il formato. Puoi scegliere manualmente le altre due
+modalità. I controlli di TAG, ordine delle frasi e sillabe restano attivi. Non
+vengono ripetute automaticamente richieste con errore di rete, quota o chiave.
+Sono supportate le API **Chat Completions** compatibili OpenAI, non protocolli
+nativi differenti. Disponibilità e qualità dipendono dal modello scelto.
+
+Riferimenti: [OpenAI Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create),
+[DeepSeek JSON Output](https://api-docs.deepseek.com/guides/json_mode/),
+[OpenRouter Structured Outputs](https://openrouter.ai/docs/guides/features/structured-outputs).
 
 ## Spartito dopo la trascrizione
 

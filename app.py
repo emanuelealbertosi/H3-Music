@@ -5,7 +5,7 @@ from pathlib import Path
 from contextlib import contextmanager
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT))
-import transcription, execution, cloning, mixing, remote_access, library_cleanup, platform_runtime, model_store, resinging, loras, lyric_meter, assistant_engine
+import transcription, execution, cloning, mixing, remote_access, library_cleanup, platform_runtime, model_store, resinging, loras, lyric_meter, assistant_engine, assistant_api
 APP=sys.modules[__name__]
 DATA=Path(os.environ.get('H3_MUSIC_DATA',str(ROOT/'data')))
 OUT=DATA/'outputs'
@@ -19,7 +19,7 @@ MODEL_OPERATION={'status':'idle'}
 LORA_OPERATION={'status':'idle'}
 ENGINE=platform_runtime.binary(ROOT,'audiocpp_cli',engine=True)
 FFMPEG=platform_runtime.binary(ROOT,'ffmpeg')
-DEFAULTS={'backend':'cpu','threads':8,'llm_url':'http://127.0.0.1:1234/v1','llm_model':'','llm_provider':'lmstudio','llm_internal_model':'','llm_device':'cpu','llm_context':16384,'paused':False,'model':'q8'}
+DEFAULTS={'backend':'cpu','threads':8,'llm_url':'http://127.0.0.1:1234/v1','llm_model':'','llm_provider':'lmstudio','llm_internal_model':'','llm_device':'cpu','llm_context':16384,'llm_api_url':'https://api.openai.com/v1','llm_api_model':'','llm_api_format':'auto','paused':False,'model':'q8'}
 MUSIC_MODELS={'q4':('yue2-3b-q4_0.gguf',2665632320,'Q4'), 'q8':('yue2-3b-q8_0.gguf',4264186432,'Q8'), 'bf16':('yue2-3b-bf16.gguf',7261475392,'BF16')}
 NUMBERS={'cfg_scale':(0,20,1.0),'num_inference_steps':(1,128,32),'abc_temperature':(0,5,.7),'abc_top_p':(0,1,.9),'abc_top_k':(1,1000,30),'abc_repetition_penalty':(.01,10,1.005),'abc_penalty_window':(1,10000,100),'abc_min_tokens':(0,4096,32),'abc_max_tokens':(32,8192,4096),'semantic_temperature':(0,5,1),'semantic_top_p':(0,1,.95),'semantic_top_k':(1,1000,100),'semantic_repetition_penalty':(.01,10,1.2),'semantic_penalty_window':(1,10000,50),'semantic_min_tokens':(0,9000,200),'semantic_max_tokens':(200,12000,9000)}
 INTEGER={'num_inference_steps'}|{k for k in NUMBERS if any(s in k for s in ('top_k','window','tokens'))}
@@ -578,7 +578,9 @@ def install_loras():
  return {'ok':True}
 
 def llm(path,payload=None,timeout=None):
+ if assistant_api.active(APP):return assistant_api.request(APP,path,payload,timeout)
  if assistant_engine.internal(APP):return assistant_engine.request(APP,path,payload,timeout)
+ if settings()['llm_provider']=='api':return assistant_api.request(APP,path,payload,timeout)
  s=settings(); base=local_llm_url(s['llm_url']); url=base+path
  if path.startswith('/api/'):
   parsed=urllib.parse.urlsplit(base);url=urllib.parse.urlunsplit((parsed.scheme,parsed.netloc,path,'',''))
@@ -588,7 +590,7 @@ def llm(path,payload=None,timeout=None):
 def assist(data):
  req=validate(data.get('request',{})); instruction=str(data.get('instruction','')).strip()[:8000]
  if not instruction: raise ValueError('Descrivi la modifica desiderata.')
- model=assistant_engine.model_id(APP) if assistant_engine.internal(APP) else settings()['llm_model']
+ model=assistant_engine.selected_model(APP)
  if not model:
   models=llm('/models').get('data',[])
   if not models: raise ValueError('Nessun modello caricato in LM Studio.')
@@ -696,7 +698,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     projects=db('SELECT * FROM projects WHERE archived=0 ORDER BY updated DESC')
     for p in projects: p['request']=json.loads(p['request'])
     jobs=[get_job(j['id']) for j in db('SELECT id FROM jobs ORDER BY created DESC LIMIT 300')]
-    return self.json_response({'projects':projects,'jobs':jobs,'settings':settings(),'runtime':ready(),'options':NUMBERS})
+    return self.json_response({'projects':projects,'jobs':jobs,'settings':assistant_api.public_settings(APP),'runtime':ready(),'options':NUMBERS})
    if path=='/api/system':
     try:
      g=run_capture(['nvidia-smi','--query-gpu=name','--format=csv,noheader'],10).stdout.strip()
@@ -705,7 +707,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
      cuda=json.loads(run_capture([str(platform_runtime.python(ROOT)),str(ROOT/'scripts/gpu_info.py')],15).stdout or '{}') if platform_runtime.windows() else {}
     except Exception: cuda={}
     motore={'cuda':'CUDA','metal':'Metal','cpu':'CPU'}[settings()['backend']]
-    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.9.2','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
+    return self.json_response(ready()|{'gpu':g,'cuda':cuda,'memory':system_memory(),'free_gb':round(shutil.disk_usage(ROOT).free/2**30,1),'version':'1.10.0','engine_note':'audio.cpp dev, motore %s; estensione locale per spartiti e artefatti.' % motore})
    if path=='/api/voice-audio':
     ref=voice_sample(urllib.parse.parse_qs(parsed.query).get('name',[''])[0])
     if ref is None:raise ValueError('Campione vocale non trovato.')
@@ -774,11 +776,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
     if not 1<=s['threads']<=64: raise ValueError('Thread fuori intervallo.')
     s['llm_url']=local_llm_url(s['llm_url']); s['llm_model']=str(s['llm_model'])[:200]; s['paused']=bool(s['paused'])
     if assistant_engine.busy():raise ValueError('Attendi la fine dell’adattamento prima di cambiare l’assistente.')
-    if s['llm_provider'] not in ('lmstudio','internal'):raise ValueError('Assistente non valido.')
+    if s['llm_provider'] not in ('lmstudio','internal','api'):raise ValueError('Assistente non valido.')
     if s['llm_device'] not in platform_runtime.backends():raise ValueError('Dispositivo dell’assistente non valido.')
     s['llm_internal_model']=str(s['llm_internal_model']).strip()[:2000];s['llm_context']=int(s['llm_context'])
     if not 4096<=s['llm_context']<=65536:raise ValueError('Contesto dell’assistente fuori intervallo.')
-    save_settings(s); WAKE.set(); result={'ok':True}
+    assistant_api.save_preferences(APP,s,data); WAKE.set(); result={'ok':True}
    elif path=='/api/assist':
     with assistant_engine.session(APP):result=assist(data)
    elif path=='/api/lyrics/context':result=lyric_context(data)

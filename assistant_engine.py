@@ -11,6 +11,7 @@ import time
 import urllib.request
 import urllib.error
 import model_store
+import assistant_api
 
 LOCK=threading.RLock()
 _busy=False
@@ -45,8 +46,14 @@ def attach_windows_job(process):
  return job
 
 def busy():return _busy
-def internal(app):return app.settings().get('llm_provider','lmstudio')=='internal'
+def internal(app):return not assistant_api.active(app) and app.settings().get('llm_provider','lmstudio')=='internal'
 def model_id(app):return 'h3-assistant'
+
+def selected_model(app):
+ if assistant_api.active(app):return assistant_api.model_id(app)
+ if internal(app):return model_id(app)
+ if app.settings().get('llm_provider')=='api':return assistant_api.model_id(app)
+ return app.settings()['llm_model']
 
 def model_files(app,data):
  """List folders and GGUF files for the in-app picker; never launch a desktop dialog."""
@@ -176,6 +183,9 @@ def start(app):
 @contextmanager
 def session(app):
  global _busy
+ if app.settings().get('llm_provider')=='api':
+  with assistant_api.session(app):yield
+  return
  if not internal(app):yield;return
  with LOCK,model_store.exclusive(app.ROOT,'assistant-runtime.lock'):
   with app.LOCK:

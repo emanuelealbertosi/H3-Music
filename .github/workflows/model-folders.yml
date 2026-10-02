@@ -37,4 +37,5 @@ jobs:
           python tests/test_lyric_meter.py
           python tests/test_macos_lora_engine.py
           python tests/test_assistant_engine.py
+          python tests/test_assistant_api.py
           python tests/assistant_install_smoke.py

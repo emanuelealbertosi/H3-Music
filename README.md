@@ -1,6 +1,10 @@
 # H3-Music
 
-**Novità 1.9:** assistente integrato facoltativo con selezione del GGUF tramite
+**Novità 1.10:** assistente e adattamento del testo anche tramite API online
+(OpenAI, DeepSeek, OpenRouter o servizio compatibile), configurabili in Sistema.
+Chiavi salvate sul PC e separate dai progetti; nessun modello del testo nella VRAM.
+I servizi online possono consumare credito. In Studio i lavori interrotti sono
+chiusi e si possono espandere. Restano disponibili le funzioni 1.9: assistente integrato facoltativo con selezione del GGUF tramite
 **Sfoglia…**, caricamento su richiesta e scaricamento automatico prima
 dell’audio. **Adatta alla melodia** prepara l’ABC del tratto originale quando
 manca e conserva i TAG del testo. Gli errori delle elaborazioni restano
@@ -8,7 +12,7 @@ in un popup fino alla chiusura esplicita. Corretto anche l’allineamento
 quando il canto generato inizia prima della base. I quattro LoRA italiani
 CNZN restano opzionali. [Uso e requisiti](docs/Italiano-e-metrica.md).
 
-**Mac:** disponibile una [anteprima scaricabile da GitHub](https://github.com/emanuelealbertosi/H3-Music/releases/tag/v1.9.2-macos-preview.1) per Apple Silicon e Intel. Richiede macOS 15+ e Homebrew; CPU predefinita, Metal facoltativo. [Installazione e limiti della versione Mac](docs/Mac.md).
+**Mac:** disponibile una [anteprima scaricabile da GitHub](https://github.com/emanuelealbertosi/H3-Music/releases/tag/v1.10.0-macos-preview.1) per Apple Silicon e Intel. Richiede macOS 15+ e Homebrew; CPU predefinita, Metal facoltativo. [Installazione e limiti della versione Mac](docs/Mac.md).
 
 Studio musicale locale per Windows, basato su **YuE2-3B (Q4, Q8 e BF16)** e **audio.cpp**. Interfaccia in italiano, con gli stessi colori avorio e verde petrolio e i font Manrope/Cormorant delle altre app H3. In questa installazione il motore usa la **GPU CUDA**; il motore precompilato distribuito nel repository per il clone su altri PC usa la **CPU**.
 

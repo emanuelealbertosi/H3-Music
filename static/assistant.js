@@ -1,4 +1,33 @@
 'use strict';
+const assistantApiPresets={openai:['OpenAI','https://api.openai.com/v1'],deepseek:['DeepSeek','https://api.deepseek.com'],openrouter:['OpenRouter','https://openrouter.ai/api/v1']};
+function assistantApiHTML(s){
+ const preset=Object.keys(assistantApiPresets).find(k=>assistantApiPresets[k][1]===s.llm_api_url)||'custom';
+ return `<div id="api-assistant" hidden><div class="field"><label for="s-api-preset">SERVIZIO</label><select id="s-api-preset">${Object.entries(assistantApiPresets).map(([key,[label]])=>`<option value="${key}" ${preset===key?'selected':''}>${label}</option>`).join('')}<option value="custom" ${preset==='custom'?'selected':''}>Personalizzato · compatibile OpenAI</option></select></div><div class="field"><label for="s-api-url">INDIRIZZO API</label><input id="s-api-url" type="url" value="${esc(s.llm_api_url||assistantApiPresets.openai[1])}" placeholder="https://servizio.example/v1"></div><div class="field"><label for="s-api-key">CHIAVE API</label><input id="s-api-key" type="password" autocomplete="new-password" placeholder="${s.llm_api_key_saved?'Chiave salvata · lascia vuoto per conservarla':'Incolla la chiave del servizio'}"><p class="hint" id="api-key-status"></p><label class="check"><input type="checkbox" id="s-api-clear-key"> Rimuovi la chiave salvata quando salvi</label></div><div class="field"><div class="label-row"><label for="s-api-model">MODELLO API</label><button type="button" id="api-models" class="text-btn">Leggi modelli</button></div><input id="s-api-model" list="api-model-list" value="${esc(s.llm_api_model||'')}" placeholder="Scegli dalla lista o inserisci l’identificativo"><datalist id="api-model-list"></datalist><p class="hint">Scegli un modello per testo/chat. Se il servizio non espone una lista, puoi inserire il nome manualmente.</p></div><details><summary>Compatibilità della risposta</summary><div class="field"><label for="s-api-format">FORMATO</label><select id="s-api-format"><option value="auto">Automatico · consigliato</option><option value="json">JSON semplice</option><option value="text">Solo istruzioni nel testo</option></select></div><p class="hint">Automatico usa risposte strutturate quando disponibili. I TAG e la metrica vengono controllati anche con gli altri formati.</p></details><p class="hint" id="api-assistant-status" role="status"></p><p class="note">Il servizio scelto riceve testo, stile, indicazioni e spartito necessari alla richiesta. Non inviamo i file audio. Le API possono consumare credito del tuo account. Non caricano un modello del testo sulla tua GPU; YuE2 continua a generare la musica sul PC.</p></div>`;
+}
+function updateAssistantApiKeyStatus(){
+ if(!$('#s-api-key'))return;
+ const saved=state.settings.llm_api_key_saved&&$('#s-api-url').value.trim().replace(/\/+$/,'')===state.settings.llm_api_url;
+ $('#s-api-key').placeholder=saved?'Chiave salvata · lascia vuoto per conservarla':'Incolla la chiave del servizio';
+ $('#api-key-status').textContent=saved?'Una chiave è salvata per questo indirizzo. Non viene mostrata alla pagina.':'La chiave viene salvata sul computer che esegue H3-Music, separata dai progetti. Cambiando indirizzo viene usata soltanto la chiave di quel servizio.';
+}
+function bindAssistantApi(){
+ $('#s-api-format').value=state.settings.llm_api_format||'auto';updateAssistantApiKeyStatus();
+ $('#s-api-preset').onchange=()=>{
+  const preset=assistantApiPresets[$('#s-api-preset').value];
+  if(preset){$('#s-api-url').value=preset[1];$('#s-api-model').value='';$('#s-api-format').value='auto'}
+  $('#s-api-key').value='';$('#s-api-clear-key').checked=false;$('#api-model-list').innerHTML='';$('#api-assistant-status').textContent='';updateAssistantApiKeyStatus();
+ };
+ $('#s-api-url').oninput=()=>{$('#s-api-preset').value='custom';$('#api-model-list').innerHTML='';updateAssistantApiKeyStatus()};
+ $('#api-models').onclick=safe(e=>busy(e.currentTarget,async()=>{
+  $('#api-assistant-status').textContent='Lettura dei modelli…';
+  try{
+   await preferences();const result=await api('llm/models');
+   if(!$('#api-model-list'))return;
+   $('#api-model-list').innerHTML=result.data.map(model=>`<option value="${esc(model.id)}">`).join('');
+   $('#api-assistant-status').textContent=`Connessione riuscita: ${result.data.length} modelli disponibili. Scegli un modello e premi Salva preferenze.`;
+  }catch(error){if($('#api-assistant-status'))$('#api-assistant-status').textContent=error.message;throw error}
+ }));
+}
 function bindAssistantModelPicker(){
  $('#assistant-model-browse').onclick=openAssistantModelPicker;
 }
@@ -42,8 +71,8 @@ function openAssistantModelPicker(){
 }
 async function assistantPreferences(){
  if(!$('#s-provider'))return;
- const integrated=$('#s-provider').value==='internal';
- $('#internal-assistant').hidden=!integrated;$('#external-assistant').hidden=integrated;
+ const provider=$('#s-provider').value,integrated=provider==='internal';
+ $('#internal-assistant').hidden=!integrated;$('#external-assistant').hidden=provider!=='lmstudio';$('#api-assistant').hidden=provider!=='api';
  if(integrated){
   const status=await api('llm/status');if(!$('#assistant-status'))return;
   $('#assistant-status').textContent=status.busy?'L’assistente sta preparando il testo…':status.ready?'Assistente pronto. A riposo non occupa la memoria del modello.':status.error||'Assistente da installare oppure modello GGUF da selezionare.';

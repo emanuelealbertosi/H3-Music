@@ -45,6 +45,7 @@ def section_plan(app,model,phrases,req,mode,instruction,reasoning_off):
 
 def loaded_model(app):
  if app.assistant_engine.internal(app):return app.assistant_engine.model_id(app)
+ if app.settings().get('llm_provider')=='api':return app.assistant_engine.selected_model(app)
  try:
   info=app.llm('/api/v1/models')
   if 'models' in info:
@@ -56,7 +57,7 @@ def loaded_model(app):
  except (urllib.error.HTTPError,urllib.error.URLError,TimeoutError):return None
 
 def reasoning_off_available(app,model):
- if app.assistant_engine.internal(app):return False
+ if app.assistant_engine.internal(app) or app.assistant_engine.assistant_api.active(app) or app.settings().get('llm_provider')=='api':return False
  try:
   for entry in app.llm('/api/v1/models').get('models',[]):
    if model==entry.get('key') or any(model==i.get('id') for i in entry.get('loaded_instances',[])):
@@ -125,7 +126,7 @@ def adapt(app,data):
  if mode not in ('create','adapt','translate'):raise ValueError('Modalità del testo non valida.')
  if not instruction and mode=='create':raise ValueError('Descrivi il tema del nuovo testo.')
  if mode!='create' and not req['lyrics']:raise ValueError('Inserisci il testo da adattare o tradurre.')
- phrases=validate_phrases(data.get('phrases'));model=app.assistant_engine.model_id(app) if app.assistant_engine.internal(app) else app.settings()['llm_model']
+ phrases=validate_phrases(data.get('phrases'));model=app.assistant_engine.selected_model(app)
  if not model:
   model=loaded_model(app)
   if not model:raise ValueError('Carica un modello istruito in LM Studio, anche sulla CPU, oppure selezionalo in Sistema.')
