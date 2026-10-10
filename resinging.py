@@ -310,7 +310,7 @@ def process(app, job, d):
     run(app.command_for({'kind': 'generate', 'request': generation_req}, generated), 'Generazione del nuovo canto', 45)
     flags = json.loads((generated/'generation_flags.json').read_text(encoding='utf-8')) if (generated/'generation_flags.json').exists() else {}
     if flags.get('audio_truncated') or flags.get('abc_truncated'):
-        raise ValueError('Il nuovo canto è stato troncato dal limite token. Scegli un tratto più breve o aumenta il limite nelle opzioni avanzate.')
+        raise ValueError('Il nuovo canto ha raggiunto la durata massima o il limite token. Aumenta la durata massima, lasciala vuota oppure scegli un tratto più breve; controlla anche i limiti nelle opzioni avanzate.' if 'max_duration' in options else 'Il nuovo canto è stato troncato dal limite token. Scegli un tratto più breve o aumenta il limite nelle opzioni avanzate.')
     generated_duration = app.audio_info(generated/'audio.wav')['duration']
     generated_notes = transcribe(generated/'audio.wav', d/'generated-score', generated_duration, 'Controllo dei tempi del nuovo canto', 65)
     report = alignment(original_notes, generated_notes)

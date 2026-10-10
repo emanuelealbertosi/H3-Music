@@ -1,5 +1,17 @@
 # H3-Music
 
+In **Studio**, vicino a **Sintesi**, trovi **Durata massima · secondi** (`max_duration`),
+facoltativa: lascia il campo vuoto per conservare il comportamento attuale.
+Accetta da 0,04 a 900 secondi e viene salvata nel progetto come parametro della
+richiesta, senza aggiunte allo stile o al testo. È un limite superiore: il brano
+può terminare prima e raggiungere il limite può interrompere il finale.
+Come nel [nodo ufficiale YuE2GenerateMusic](https://github.com/Comfy-Org/ComfyUI/blob/master/comfy_extras/nodes_yue2.py),
+H3-Music traduce i secondi in un budget di 25 frame audio al secondo per il motore
+audio.cpp. Se imposti anche un limite token audio, prevale il limite più basso.
+Con **Base originale** il parametro limita la generazione del nuovo canto;
+la musica originale mantiene la propria durata. Il parametro funziona anche
+dopo un pull, su CPU o GPU, senza ricompilare il motore.
+
 **Novità 1.10:** assistente e adattamento del testo anche tramite API online
 (OpenAI, DeepSeek, OpenRouter o servizio compatibile), configurabili in Sistema.
 Chiavi salvate sul PC e separate dai progetti; nessun modello del testo nella VRAM.

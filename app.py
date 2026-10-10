@@ -21,7 +21,7 @@ ENGINE=platform_runtime.binary(ROOT,'audiocpp_cli',engine=True)
 FFMPEG=platform_runtime.binary(ROOT,'ffmpeg')
 DEFAULTS={'backend':'cpu','threads':8,'llm_url':'http://127.0.0.1:1234/v1','llm_model':'','llm_provider':'lmstudio','llm_internal_model':'','llm_device':'cpu','llm_context':16384,'llm_retries':3,'llm_api_url':'https://api.openai.com/v1','llm_api_model':'','llm_api_format':'auto','paused':False,'model':'q8'}
 MUSIC_MODELS={'q4':('yue2-3b-q4_0.gguf',2665632320,'Q4'), 'q8':('yue2-3b-q8_0.gguf',4264186432,'Q8'), 'bf16':('yue2-3b-bf16.gguf',7261475392,'BF16')}
-NUMBERS={'cfg_scale':(0,20,1.0),'num_inference_steps':(1,128,32),'abc_temperature':(0,5,.7),'abc_top_p':(0,1,.9),'abc_top_k':(1,1000,30),'abc_repetition_penalty':(.01,10,1.005),'abc_penalty_window':(1,10000,100),'abc_min_tokens':(0,4096,32),'abc_max_tokens':(32,8192,4096),'semantic_temperature':(0,5,1),'semantic_top_p':(0,1,.95),'semantic_top_k':(1,1000,100),'semantic_repetition_penalty':(.01,10,1.2),'semantic_penalty_window':(1,10000,50),'semantic_min_tokens':(0,9000,200),'semantic_max_tokens':(200,12000,9000)}
+NUMBERS={'max_duration':(.04,900,360),'cfg_scale':(0,20,1.0),'num_inference_steps':(1,128,32),'abc_temperature':(0,5,.7),'abc_top_p':(0,1,.9),'abc_top_k':(1,1000,30),'abc_repetition_penalty':(.01,10,1.005),'abc_penalty_window':(1,10000,100),'abc_min_tokens':(0,4096,32),'abc_max_tokens':(32,8192,4096),'semantic_temperature':(0,5,1),'semantic_top_p':(0,1,.95),'semantic_top_k':(1,1000,100),'semantic_repetition_penalty':(.01,10,1.2),'semantic_penalty_window':(1,10000,50),'semantic_min_tokens':(0,9000,200),'semantic_max_tokens':(200,12000,9000)}
 INTEGER={'num_inference_steps'}|{k for k in NUMBERS if any(s in k for s in ('top_k','window','tokens'))}
 
 def now(): return time.time()
@@ -56,6 +56,21 @@ def settings():
  r=db('SELECT value FROM settings WHERE key=?',('main',),True)
  return DEFAULTS| (json.loads(r['value']) if r else {})
 def save_settings(s): db('INSERT OR REPLACE INTO settings VALUES (?,?)',('main',jdump(s)))
+
+def music_options(options):
+ # YuE2GenerateMusic converts max_duration to semantic frames at 25 Hz.
+ # audio.cpp accepts the equivalent token budget, not max_duration itself.
+ # Leave omitted duration completely unchanged, including legacy token limits.
+ opts=dict(options)
+ if 'max_duration' not in opts: return opts
+ budget=max(1,round(opts['max_duration']*25))
+ opts['semantic_max_tokens']=min(budget,opts.get('semantic_max_tokens',budget))
+ minimum=opts.get('semantic_min_tokens',NUMBERS['semantic_min_tokens'][2])
+ if 'semantic_min_tokens' in opts and minimum>opts['semantic_max_tokens']:
+  raise ValueError('I token minimi audio superano la durata massima. Riduci il minimo o aumenta la durata.')
+ opts['semantic_min_tokens']=min(minimum,opts['semantic_max_tokens'])
+ return opts
+
 def validate(req):
  if not isinstance(req,dict): raise ValueError('Progetto non valido.')
  r={k:str(req.get(k,'')).strip() for k in ('title','style','lyrics','abc','notes')}
@@ -87,6 +102,7 @@ def validate(req):
   r['options'][k]=int(v) if k in INTEGER else v
  for prefix in ('abc','semantic'):
   if r['options'].get(prefix+'_min_tokens',NUMBERS[prefix+'_min_tokens'][2])>r['options'].get(prefix+'_max_tokens',NUMBERS[prefix+'_max_tokens'][2]): raise ValueError('Il limite massimo deve essere maggiore del minimo.')
+ music_options(r['options'])
  return r
 
 def init():
@@ -387,7 +403,7 @@ def command_for(job,d):
   s=settings()
   inp=normalize_audio(source_audio(job['request'].get('source_id')),d/'input.wav')
   return [str(ENGINE),'--task','sep','--family','htdemucs','--model',str(separation_model()),'--backend',s['backend'],'--threads',str(s['threads']),'--audio',str(inp),'--out-dir',str(d),'--log','--metrics']
- req=job['request']; opts=req['options']|{'style':loras.style_prompt(req['style'],req.get('lora','')),'cot':req['cot'],'seed':str(req['seed']),'h3_artifact_dir':str(d),'h3_plan_only':'true' if job['kind']=='plan' else 'false'}
+ req=job['request']; opts=music_options(req['options'])|{'style':loras.style_prompt(req['style'],req.get('lora','')),'cot':req['cot'],'seed':str(req['seed']),'h3_artifact_dir':str(d),'h3_plan_only':'true' if job['kind']=='plan' else 'false'}
  if req['abc']:
   (d/'input.abc').write_text(normalize_abc(req['abc']),encoding='utf-8',newline='\n'); opts['abc_file']=str(d/'input.abc')
  write_json(d/'request.json',req)
