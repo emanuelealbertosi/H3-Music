@@ -1,5 +1,12 @@
 # H3-Music
 
+**Cover sulla base originale:** la generazione ora evita una chiusura spontanea
+prima dell'ultima nota vocale riconosciuta, conservando i limiti espliciti e i
+controlli sulla melodia. Quando una frase non passa il controllo, l'errore mostra
+il punto del brano e quante note sono state riconosciute. Ripetere con lo stesso
+seed può riprodurre lo stesso errore: prova un altro seed o LoRA.
+[Verifica delle novità YuE2 e diagnosi del 12 novembre](docs/YuE2-Novita-2026-11.md).
+
 In **Studio**, vicino a **Sintesi**, trovi **Durata massima · secondi** (`max_duration`),
 facoltativa: lascia il campo vuoto per conservare il comportamento attuale.
 Accetta da 0,04 a 900 secondi e viene salvata nel progetto come parametro della

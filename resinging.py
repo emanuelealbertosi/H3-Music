@@ -117,9 +117,40 @@ def check_phrase_coverage(original, matched):
         if not original_phrases or note[0]-original_phrases[-1][-1][1] > .6:
             original_phrases.append([])
         original_phrases[-1].append(note)
-    if any(len(phrase)>=3 and sum(note in recognized for note in phrase)/len(phrase)<.7 for phrase in original_phrases):
-        raise ValueError('Una frase del nuovo canto non corrisponde alla melodia originale: il mix è stato fermato.')
+    for phrase in original_phrases:
+        count = sum(note in recognized for note in phrase)
+        if len(phrase)>=3 and count/len(phrase)<.7:
+            def clock(seconds):
+                seconds = max(0, round(seconds))
+                return f'{seconds//60}:{seconds%60:02d}'
+            raise ValueError(f'Una frase del nuovo canto non corrisponde alla melodia originale '
+                             f'(da {clock(phrase[0][0])} a {clock(max(n[1] for n in phrase))}: '
+                             f'{count} note riconosciute su {len(phrase)}). Il mix è stato fermato. '
+                             'Prova un seed diverso o un altro LoRA; ripetere con gli stessi parametri può produrre lo stesso risultato.')
     return original_phrases
+
+
+def generation_options(app, options, original_notes):
+    """Keep a score-driven replacement alive through the last original vocal note.
+
+    YuE2's default eight-second minimum allows an EOS before the final phrase.
+    This is only an EOS floor, not padding or a substitute for melody verification.
+    Explicit user minima are retained; conflicting upper limits stop before synthesis.
+    """
+    result = dict(options)
+    result.setdefault('num_inference_steps', 48)
+    required = max(1, math.ceil(max(note[1] for note in original_notes)*25))
+    ceiling = result.get('semantic_max_tokens', app.NUMBERS['semantic_max_tokens'][2])
+    if 'max_duration' in result:
+        duration_budget = max(1, round(result['max_duration']*25))
+        ceiling = min(ceiling, duration_budget) if 'semantic_max_tokens' in result else duration_budget
+    if required > ceiling:
+        raise ValueError(f'Il nuovo canto deve coprire almeno {required/25:.2f} secondi per arrivare '
+                         'all’ultima nota originale. Aumenta la durata massima o il limite token audio, '
+                         'oppure scegli un tratto più breve.')
+    if required > app.NUMBERS['semantic_min_tokens'][2]:
+        result.setdefault('semantic_min_tokens', required)
+    return result
 
 
 def phrase_alignment(original, generated, allow_phrases=True, verification=False):
@@ -305,7 +336,7 @@ def process(app, job, d):
     (d/'score.abc').write_text(score, encoding='utf-8', newline='\n')
     generated = d/'generated'; generated.mkdir(exist_ok=True)
     style = req['style'] or 'Italian, clear solo lead singing, steady tempo, follow the supplied score exactly, no extra intro, no backing vocals'
-    options = dict(req['options']); options.setdefault('num_inference_steps', 48)
+    options = generation_options(app, req['options'], original_notes)
     generation_req = req | {'style': style, 'abc': score, 'cot': 'full', 'base_enabled': False, 'clone_enabled': False, 'options': options}
     run(app.command_for({'kind': 'generate', 'request': generation_req}, generated), 'Generazione del nuovo canto', 45)
     flags = json.loads((generated/'generation_flags.json').read_text(encoding='utf-8')) if (generated/'generation_flags.json').exists() else {}

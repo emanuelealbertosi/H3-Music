@@ -34,6 +34,33 @@ class ResingingTests(unittest.TestCase):
    with self.subTest(key=key), self.assertRaises(ValueError): app.validate(self.req | {key: value})
   req = app.validate(self.req | {'cot': 'off', 'abc': 'X:1\nK:C\nC'})
   self.assertEqual(req['cot'], 'full')
+ def test_cover_minimum_reaches_last_vocal_not_the_end_of_the_music(self):
+  notes=[(10.49,10.8,67),(133.6,138.49,70)]
+  original={'num_inference_steps':60}
+  result=resinging.generation_options(app,original,notes)
+  self.assertEqual(result['semantic_min_tokens'],3463)
+  self.assertEqual(result['num_inference_steps'],60)
+  self.assertEqual(original,{'num_inference_steps':60})
+  self.assertNotIn('semantic_max_tokens',result)
+ def test_cover_options_preserve_explicit_minimum_and_short_song_defaults(self):
+  for seconds in (7,89.5,138.49,217.31,240):
+   with self.subTest(seconds=seconds):
+    result=resinging.generation_options(app,{'semantic_min_tokens':0},[(0,seconds,60)])
+    self.assertEqual(result['semantic_min_tokens'],0)
+    result=resinging.generation_options(app,{},[(0,seconds,60)])
+    self.assertEqual(result.get('semantic_min_tokens',200),max(200,math.ceil(seconds*25)))
+    self.assertEqual(result['num_inference_steps'],48)
+ def test_cover_duration_and_token_ceiling_conflicts_fail_before_generation(self):
+  notes=[(133.6,138.49,70)]
+  for options in ({'max_duration':120},{'semantic_max_tokens':3000},
+                  {'max_duration':180,'semantic_max_tokens':3000}):
+   with self.subTest(options=options),self.assertRaisesRegex(ValueError,'138.52 secondi'):
+    resinging.generation_options(app,options,notes)
+  self.assertEqual(resinging.generation_options(app,{'max_duration':180},notes)['semantic_min_tokens'],3463)
+ def test_missing_final_phrase_reports_its_time_and_keeps_the_guard(self):
+  original=[(10+i*.4,10+i*.4+.3,60+i%5) for i in range(20)]+[(133.6+i*.3,133.6+i*.3+.2,67) for i in range(15)]
+  with self.assertRaisesRegex(ValueError,r'da 2:14 a 2:18: 0 note riconosciute su 15'):
+   resinging.check_phrase_coverage(original,[(n,n) for n in original[:20]])
  def test_queue_keeps_project_and_request_snapshot_without_style_or_clone(self):
   project = app.project_save({'request': self.req})
   with self.preflight(), patch.object(app, 'ready', return_value={'ready': True}):
@@ -260,6 +287,8 @@ class ResingingTests(unittest.TestCase):
    if cancelled:app.cancel(ident)
   def command(job, folder):
    self.assertFalse(job['request']['base_enabled']);self.assertFalse(job['request']['clone_enabled']);self.assertEqual(job['request']['cot'],'full')
+   source_notes=resinging.read_notes(d/'source-score/melody_vocal.lab')
+   self.assertGreaterEqual(job['request']['options'].get('semantic_min_tokens',200),math.ceil(max(n[1] for n in source_notes)*25))
    return ['engine','--task','gen','--backend',backend,'--out-dir',str(folder)]
   def convert(a,j,folder,source,reference,out,settings):out.write_bytes(b'converted')
   def mix(j,folder,voice,**kwargs):
