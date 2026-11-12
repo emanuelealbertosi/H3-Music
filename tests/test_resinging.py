@@ -253,7 +253,7 @@ class ResingingTests(unittest.TestCase):
      onset=next(i/48000 for i,value in enumerate(values) if abs(value)>1000)
      self.assertAlmostEqual(onset,(.5+.39431)/scale,delta=.03)
      self.assertEqual(max(map(abs,values[:round(.7*48000)])),0)
- def exercise_pipeline(self, clone=False, cancelled=False, drift=False, truncated=False, backend='cpu', automatic=True, phrases=False, bad_check=False, mislabeled_mix=False, tempo=False):
+ def exercise_pipeline(self, clone=False, cancelled=False, drift=False, truncated=False, backend='cpu', automatic=True, phrases=False, bad_check=False, mislabeled_mix=False, tempo=False, initial_mislabeled_mix=False):
   req=app.validate(self.req | {'clone_enabled': clone, 'clone_voice': 'sample' if clone else '', 'voice_steps': 50, 'mix': {'automatic': automatic}})
   project=app.project_save({'request':req})
   with self.preflight(),patch.object(app,'ready',return_value={'ready':True}),patch.object(resinging.cloning,'preflight'):
@@ -265,6 +265,8 @@ class ResingingTests(unittest.TestCase):
    app.check_cancel(ident);calls.append(args)
    if '--output' in args:
     output=pathlib.Path(args[args.index('--output')+1]);(output/'melody_vocal.lab').write_text(note_text if not drift or output.name=='source-score' else '\n'.join(f'{i*.5} {i*.5+.3} {60+i%5}' for i in range(20)))
+    if initial_mislabeled_mix and output.name=='generated-score':
+     (output/'melody_vocal.lab').write_text('\n'.join(f'{i*.4} {i*.4+.3} {72+i%5}' for i in range(20)))
     if phrases:
      original,generated=self.phrase_notes((.44,.74,.51))
      notes=generated if output.name=='generated-score' or bad_check and output.name in ('aligned-score','aligned-vocal-score') else original
@@ -311,6 +313,9 @@ class ResingingTests(unittest.TestCase):
     self.assertNotIn('rubberband',filters);self.assertNotIn('atempo',filters)
     if automatic:self.assertEqual(result['alignment']['excerpt_voice_gain_db'],5);self.assertEqual(measured.call_count,2)
     else:measured.assert_not_called();self.assertNotIn('excerpt_voice_gain_db',result['alignment'])
+    if initial_mislabeled_mix:
+     self.assertEqual(result['alignment']['initial_alignment_source'],'isolated-generated-vocals')
+     self.assertIn('melodia',result['alignment']['initial_mix_error'])
     if phrases or tempo:
      self.assertIn('verified_timing',result['alignment'])
      self.assertEqual(result['alignment']['verification_source'],'isolated-replacement-vocals' if mislabeled_mix else 'original-backing-mix')
@@ -332,6 +337,7 @@ class ResingingTests(unittest.TestCase):
  def test_phrase_pipeline_verifies_corrected_audio_on_selected_original_base(self):self.exercise_pipeline(phrases=True)
  def test_phrase_pipeline_rejects_failed_audio_verification_before_cloning(self):self.exercise_pipeline(phrases=True,bad_check=True,clone=True)
  def test_mislabeled_mix_is_rechecked_against_replacement_voice_only(self):self.exercise_pipeline(phrases=True,mislabeled_mix=True)
+ def test_mislabeled_initial_mix_is_checked_against_actual_voice_without_loosening_thresholds(self):self.exercise_pipeline(initial_mislabeled_mix=True)
  def test_tempo_pipeline_verifies_the_actual_audio_before_optional_clone(self):self.exercise_pipeline(tempo=True,clone=True)
  def test_tempo_pipeline_cannot_publish_unverified_audio(self):self.exercise_pipeline(tempo=True,bad_check=True,clone=True)
 

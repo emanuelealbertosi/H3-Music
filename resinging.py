@@ -344,10 +344,22 @@ def process(app, job, d):
         raise ValueError('Il nuovo canto ha raggiunto la durata massima o il limite token. Aumenta la durata massima, lasciala vuota oppure scegli un tratto più breve; controlla anche i limiti nelle opzioni avanzate.' if 'max_duration' in options else 'Il nuovo canto è stato troncato dal limite token. Scegli un tratto più breve o aumenta il limite nelle opzioni avanzate.')
     generated_duration = app.audio_info(generated/'audio.wav')['duration']
     generated_notes = transcribe(generated/'audio.wav', d/'generated-score', generated_duration, 'Controllo dei tempi del nuovo canto', 65)
-    report = alignment(original_notes, generated_notes)
+    fresh_stems = d/'generated-stems'; separated = False
+    try:
+        report = alignment(original_notes, generated_notes)
+    except ValueError as mixed_error:
+        # Choirs and dense arrangements can make the mixed-audio recognizer
+        # label a backing part as Vocal. Recheck the actual replacement voice
+        # before deciding that a phrase is missing; retain every safety threshold.
+        separate(generated/'audio.wav', fresh_stems, 'Controllo della voce separata', 69)
+        separated = True
+        isolated_notes = transcribe(fresh_stems/'vocals.wav', d/'generated-vocal-score', generated_duration, 'Ricontrollo della melodia della sola voce', 72)
+        report = alignment(original_notes, isolated_notes)
+        report.update({'initial_alignment_source':'isolated-generated-vocals', 'initial_mix_error':str(mixed_error)})
     report.update({'start': start, 'end': end, 'original_duration': duration, 'generated_duration': generated_duration})
     app.write_json(d/'alignment.json', report)
-    fresh_stems = d/'generated-stems'; separate(generated/'audio.wav', fresh_stems, 'Estrazione del nuovo canto', 75)
+    if not separated:
+        separate(generated/'audio.wav', fresh_stems, 'Estrazione del nuovo canto', 75)
     aligned = d/'new-singing.wav'
     render_aligned_voice(app,fresh_stems/'vocals.wav',aligned,report,duration,generated_duration,ff)
     if 'anchors' in report or 'tempo_scale' in report:
@@ -413,6 +425,9 @@ def process(app, job, d):
     final = app.mix_voice(job, d, d/'voce.wav', source=stems, runner=lambda args: run(args, 'Bilanciamento del nuovo canto', 95))
     result = app.audio_info(final) | {'regenerated_vocals': True, 'original_preserved': True, 'source_kind': 'import', 'import_id': req['base_import_id'],
                                     'base_start': start, 'base_end': end, 'alignment': report, 'cloned': req.get('clone_enabled', False)}
+    schedule_file = generated/'lyric-schedule.json'
+    if schedule_file.exists():
+        result['words_follow_score'] = json.loads(schedule_file.read_text(encoding='utf-8'))
     if req.get('clone_enabled'): result.update({'voice': req['clone_voice'], 'voice_steps': req['voice_steps']})
     def digest(path):
         with path.open('rb') as stream: return hashlib.file_digest(stream, 'sha256').hexdigest()

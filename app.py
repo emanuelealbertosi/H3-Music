@@ -5,7 +5,7 @@ from pathlib import Path
 from contextlib import contextmanager
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT))
-import transcription, execution, cloning, mixing, remote_access, library_cleanup, platform_runtime, model_store, resinging, loras, lyric_meter, assistant_engine, assistant_api
+import transcription, execution, cloning, mixing, remote_access, library_cleanup, platform_runtime, model_store, resinging, loras, lyric_meter, assistant_engine, assistant_api, lyric_schedule
 APP=sys.modules[__name__]
 DATA=Path(os.environ.get('H3_MUSIC_DATA',str(ROOT/'data')))
 OUT=DATA/'outputs'
@@ -93,6 +93,8 @@ def validate(req):
  r['clone_voice']=req.get('clone_voice','')
  if not isinstance(r['clone_voice'],str) or len(r['clone_voice'])>200:raise ValueError('Voce non valida.')
  r['options']={}
+ r['words_follow_score']=req.get('words_follow_score',True)
+ if not isinstance(r['words_follow_score'],bool):raise ValueError('Scelta della sincronizzazione del testo non valida.')
  r['mix']=mixing.validate(req.get('mix'))
  r['voice_steps']=cloning.voice_steps(req.get('voice_steps',30))
  r.update(resinging.validate_fields(req))
@@ -138,6 +140,11 @@ def get_job(ident,detail=False):
    with log.open('rb') as f:
     f.seek(max(0,log.stat().st_size-16000)); j['log']=f.read().decode('utf-8',errors='replace')
   score=OUT/ident/'score.abc'; j['abc']=read_abc(score) if score.exists() else ''
+  for schedule_path in (OUT/ident/'generated/lyric-schedule.json',OUT/ident/'lyric-schedule.json'):
+   if schedule_path.exists():
+    try:j['result']['words_follow_score']=json.loads(schedule_path.read_text(encoding='utf-8'))
+    except (OSError,json.JSONDecodeError):pass
+    break
   if j['kind']=='transcribe':
    j['annotations']={}
    for name in ('chord','key','structure','beat'):
@@ -199,7 +206,7 @@ def ready():
  required[chosen]=expected
  missing=[n for n,size in required.items() if not (MODEL/n).is_file() or (MODEL/n).stat().st_size!=size]
  available={k:(MODEL/v[0]).is_file() and (MODEL/v[0]).stat().st_size==installed_model_sizes().get(v[0],v[1]) for k,v in MUSIC_MODELS.items()}
- return {'ready':ENGINE.exists() and not missing,'engine':ENGINE.exists(),'missing':missing,'ffmpeg':FFMPEG.exists(),'sep':bool(separation_model()),'voice':bool(voice_model()),'voices':len(voice_list()),'model':'YuE2-3B · %s / VAE F16' % MUSIC_MODELS[variant][2],'model_variant':variant,'available_models':available,'root':str(ROOT),'transcription':transcription.status(ROOT,settings()['backend']),'platform':sys.platform,'backends':platform_runtime.backends(),'setup_name':platform_runtime.setup_name()}
+ return {'ready':ENGINE.exists() and not missing,'engine':ENGINE.exists(),'missing':missing,'ffmpeg':FFMPEG.exists(),'sep':bool(separation_model()),'voice':bool(voice_model()),'voices':len(voice_list()),'model':'YuE2-3B · %s / VAE F16' % MUSIC_MODELS[variant][2],'model_variant':variant,'available_models':available,'root':str(ROOT),'transcription':transcription.status(ROOT,settings()['backend']),'platform':sys.platform,'backends':platform_runtime.backends(),'words_follow_score':lyric_schedule.supported(ENGINE),'setup_name':platform_runtime.setup_name()}
 
 TOOLS=model_store.location(ROOT)/'tools'
 
@@ -404,6 +411,7 @@ def command_for(job,d):
   inp=normalize_audio(source_audio(job['request'].get('source_id')),d/'input.wav')
   return [str(ENGINE),'--task','sep','--family','htdemucs','--model',str(separation_model()),'--backend',s['backend'],'--threads',str(s['threads']),'--audio',str(inp),'--out-dir',str(d),'--log','--metrics']
  req=job['request']; opts=music_options(req['options'])|{'style':loras.style_prompt(req['style'],req.get('lora','')),'cot':req['cot'],'seed':str(req['seed']),'h3_artifact_dir':str(d),'h3_plan_only':'true' if job['kind']=='plan' else 'false'}
+ opts.update(lyric_schedule.prepare(APP,req,d,job['kind']))
  if req['abc']:
   (d/'input.abc').write_text(normalize_abc(req['abc']),encoding='utf-8',newline='\n'); opts['abc_file']=str(d/'input.abc')
  write_json(d/'request.json',req)
@@ -458,6 +466,8 @@ def finish_artifacts(job,d):
  score=decode_score(d)
  if not score and job['request']['abc']: (d/'score.abc').write_text(normalize_abc(job['request']['abc']),encoding='utf-8',newline='\n')
  flags=d/'generation_flags.json'; result=json.loads(flags.read_text()) if flags.exists() else {}
+ schedule_file=d/'lyric-schedule.json'
+ if schedule_file.exists():result['words_follow_score']=json.loads(schedule_file.read_text(encoding='utf-8'))
  if job['kind']=='generate':
   audio=d/'audio.wav'
   if not audio.exists() or audio.stat().st_size<100: raise RuntimeError('Il motore non ha prodotto audio utilizzabile.')

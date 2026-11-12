@@ -38,6 +38,7 @@ cmake -S "$root\vendor\audio.cpp" -B $BuildDir -G 'Visual Studio 17 2022' -A x64
   '-DCMAKE_C_FLAGS=/DWIN32 /D_WINDOWS /utf-8' `
   '-DCMAKE_CXX_FLAGS=/DWIN32 /D_WINDOWS /EHsc /utf-8' `
   -DAUDIOCPP_DEPLOYMENT_BUILD=ON -DENGINE_ENABLE_CUDA=OFF -DENGINE_ENABLE_NATIVE_CPU=OFF `
+  -DAUDIOCPP_MODEL_SET=custom '-DAUDIOCPP_MODELS=yue2,demucs,seed_vc' `
   -DENGINE_ENABLE_LLAMAFILE=ON -DENGINE_ENABLE_OPENMP=ON
 if ($LASTEXITCODE -ne 0) { throw 'Configurazione CMake fallita.' }
 
@@ -45,7 +46,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Configurazione CMake fallita.' }
 Write-Host 'Compilazione (MSBuild, Release)...'
 $msbuild = Join-Path $VsRoot 'MSBuild\Current\Bin\MSBuild.exe'
 & $msbuild "$BuildDir\AudioCpp.sln" /p:Configuration=Release /p:Platform=x64 `
-  /m:1 /p:TrackFileAccess=false /v:m
+  /t:audiocpp_cli /m:1 /p:TrackFileAccess=false /v:m
 if ($LASTEXITCODE -ne 0) { throw 'Compilazione fallita.' }
 
 # --- pacchettizzazione ---

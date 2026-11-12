@@ -1,5 +1,8 @@
 # YuE2: verifica del 12 novembre 2026
 
+Successivamente a questa verifica è stato integrato **Parole al passo con lo
+spartito**: [funzionamento e collaudo](Words-follow-the-score.md).
+
 ## Cosa cambia per H3-Music
 
 Le novità degli altri Studio non aggiornano automaticamente i pesi YuE2.

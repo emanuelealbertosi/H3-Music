@@ -41,4 +41,5 @@ function renderStudioResult(job){
  $('#studio-result-score').disabled=!!draft.base_enabled;
  $('#studio-result-generate').textContent=job.kind==='plan'?'Genera il brano':'Genera nuova versione';
  $('#studio-result-warning').textContent=job.result.audio_truncated||job.result.abc_truncated?'Limite token raggiunto: controlla il finale prima di creare una nuova versione.':'';
+ const scheduleHint=lyricScheduleHint(job);if(scheduleHint)$('#studio-result-warning').textContent+=' '+scheduleHint;
 }

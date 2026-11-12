@@ -1,5 +1,13 @@
 # H3-Music
 
+**Parole al passo con lo spartito:** nello Studio un flag facoltativo aggancia le
+sezioni del testo ai tempi dell'ABC durante la generazione YuE2. Vale anche per
+il nuovo canto sulla base originale; testo e spartito restano invariati.
+Il risultato mostra le sezioni applicate e i TAG non abbinati. Con un vecchio
+motore resta utilizzabile la generazione precedente: per abilitare il controllo
+serve il motore aggiornato (CPU incluso; NVIDIA con Attiva-GPU.bat).
+[Funzionamento, limiti e verifiche](docs/Words-follow-the-score.md).
+
 **Cover sulla base originale:** la generazione ora evita una chiusura spontanea
 prima dell'ultima nota vocale riconosciuta, conservando i limiti espliciti e i
 controlli sulla melodia. Quando una frase non passa il controllo, l'errore mostra

@@ -28,7 +28,7 @@ jobs:
         id: engine-cache
         with:
           path: runtime/engine/audiocpp_cli
-          key: mac-engine-v2-${{ matrix.architecture }}-13c4192-${{ hashFiles('scripts/patch_engine.py', 'scripts/engine-lora/**') }}
+          key: mac-engine-v2-${{ matrix.architecture }}-13c4192-${{ hashFiles('scripts/patch_engine.py', 'scripts/engine_schedule_patch.py', 'scripts/engine-schedule/**', 'scripts/engine-lora/**') }}
       - name: Fetch pinned audio engine
         if: steps.engine-cache.outputs.cache-hit != 'true'
         run: |

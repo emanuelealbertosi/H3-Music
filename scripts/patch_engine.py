@@ -60,3 +60,8 @@ edit('src/models/yue2/session.cpp','    out.session_options = {', '''    out.ses
         {"yue2.ar_lora_scale", "float", "AR LoRA strength.", false, "1"},
         {"yue2.nar_lora_scale", "float", "NAR LoRA strength.", false, "1"},''')
 print('Local artifact/plan extension and optional AR/NAR LoRA support applied')
+import sys
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from engine_schedule_patch import apply as apply_schedule
+apply_schedule(r)
+print('Optional score-timed lyric attention applied')
