@@ -72,8 +72,11 @@ non viene pubblicato un mix che non supera i controlli solo perché il flag è a
 
 Per i cori e gli arrangiamenti densi, quando il riconoscimento sul mix indica una
 frase mancante, viene controllata anche la voce separata prima di decidere. Le
-soglie melodiche e temporali restano uguali: una frase realmente mancante o
-troppo diversa continua a fermare il lavoro.
+soglie temporali restano uguali. **Accetta piccole variazioni del canto** consente
+di valutare brevissimi frammenti parzialmente riconosciuti insieme alla frase
+vicina, con un avviso e una verifica finale della voce isolata. Disattivandola
+si conserva il controllo melodico severo. Una frase interamente mancante continua
+a fermare il lavoro. [Criteri e prova Coro](Coro-e-allineamento.md).
 
 Fonti: [programmazione delle sezioni di YuE2 Studio](https://github.com/timoncool/YuE2-Studio/blob/main/crates/music-server/src/score/schedule.rs)
 e [controllo dell'attenzione nel motore](https://github.com/timoncool/yue2.cpp/blob/c8516dbf44d660cca40d3f420c67063e37ec8258/src/generate.h).

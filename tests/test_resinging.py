@@ -61,6 +61,37 @@ class ResingingTests(unittest.TestCase):
   original=[(10+i*.4,10+i*.4+.3,60+i%5) for i in range(20)]+[(133.6+i*.3,133.6+i*.3+.2,67) for i in range(15)]
   with self.assertRaisesRegex(ValueError,r'da 2:14 a 2:18: 0 note riconosciute su 15'):
    resinging.check_phrase_coverage(original,[(n,n) for n in original[:20]])
+ def minor_example(self):
+  phrase=[(i*.3,i*.3+.25,60+i%5) for i in range(6)]
+  fragment=[(3+i*.25,3+i*.25+.2,80+i) for i in range(3)]
+  original=phrase+fragment;matched=[(n,n) for n in phrase+[fragment[-1]]]
+  return original,matched
+ def test_partial_short_cadence_counts_with_its_phrase_only_when_allowed(self):
+  original,matched=self.minor_example()
+  with self.assertRaises(ValueError):resinging.check_phrase_coverage(original,matched)
+  groups,variations=resinging.phrase_coverage(original,matched,allow_minor=True)
+  self.assertEqual(groups,[original]);self.assertEqual(sum(map(len,groups)),len(original))
+  self.assertEqual(variations,[{'start':3,'end':3.7,'notes':3,'matched_notes':1,'different_notes':2}])
+ def test_minor_mode_never_hides_a_completely_missing_short_phrase(self):
+  original,matched=self.minor_example()
+  # Even a very long well-recognized neighbor must not hide an absent cadence.
+  with self.assertRaises(ValueError):resinging.phrase_coverage(original,matched[:-1],allow_minor=True)
+ def test_minor_mode_keeps_independent_long_and_distant_fragments_strict(self):
+  original,matched=self.minor_example()
+  for changed in ([*original[:6],*[(a+2,b+2,p) for a,b,p in original[6:]]],
+                  [*original[:6],*[(a,a+.7,p) for a,b,p in original[6:]]]):
+   recognized=changed[:6]+[changed[-1]]
+   with self.subTest(changed=changed),self.assertRaises(ValueError):
+    resinging.phrase_coverage(changed,[(n,n) for n in recognized],allow_minor=True)
+ def test_minor_mode_does_not_change_a_valid_alignment(self):
+  notes=[(i*.4,i*.4+.3,60+i%5) for i in range(30)]
+  self.assertEqual(resinging.alignment(notes,notes),resinging.alignment(notes,notes,allow_minor=True))
+  with self.assertRaises(ValueError):resinging.alignment(notes,[(a,b,p+12) for a,b,p in notes],allow_minor=True)
+ def test_minor_option_is_saved_and_accepts_only_booleans(self):
+  self.assertTrue(app.validate(self.req)['base_allow_minor_variations'])
+  self.assertFalse(app.validate(self.req|{'base_allow_minor_variations':False})['base_allow_minor_variations'])
+  for value in ('true',1,None):
+   with self.subTest(value=value),self.assertRaises(ValueError):app.validate(self.req|{'base_allow_minor_variations':value})
  def test_queue_keeps_project_and_request_snapshot_without_style_or_clone(self):
   project = app.project_save({'request': self.req})
   with self.preflight(), patch.object(app, 'ready', return_value={'ready': True}):
@@ -253,8 +284,8 @@ class ResingingTests(unittest.TestCase):
      onset=next(i/48000 for i,value in enumerate(values) if abs(value)>1000)
      self.assertAlmostEqual(onset,(.5+.39431)/scale,delta=.03)
      self.assertEqual(max(map(abs,values[:round(.7*48000)])),0)
- def exercise_pipeline(self, clone=False, cancelled=False, drift=False, truncated=False, backend='cpu', automatic=True, phrases=False, bad_check=False, mislabeled_mix=False, tempo=False, initial_mislabeled_mix=False):
-  req=app.validate(self.req | {'clone_enabled': clone, 'clone_voice': 'sample' if clone else '', 'voice_steps': 50, 'mix': {'automatic': automatic}})
+ def exercise_pipeline(self, clone=False, cancelled=False, drift=False, truncated=False, backend='cpu', automatic=True, phrases=False, bad_check=False, mislabeled_mix=False, tempo=False, initial_mislabeled_mix=False, minor_variation=False, allow_minor=True):
+  req=app.validate(self.req | {'clone_enabled': clone, 'clone_voice': 'sample' if clone else '', 'voice_steps': 50, 'mix': {'automatic': automatic}, 'base_allow_minor_variations':allow_minor})
   project=app.project_save({'request':req})
   with self.preflight(),patch.object(app,'ready',return_value={'ready':True}),patch.object(resinging.cloning,'preflight'):
    ident=app.enqueue({'project_id':project['id'],'request':req})['ids'][0]
@@ -267,6 +298,10 @@ class ResingingTests(unittest.TestCase):
     output=pathlib.Path(args[args.index('--output')+1]);(output/'melody_vocal.lab').write_text(note_text if not drift or output.name=='source-score' else '\n'.join(f'{i*.5} {i*.5+.3} {60+i%5}' for i in range(20)))
     if initial_mislabeled_mix and output.name=='generated-score':
      (output/'melody_vocal.lab').write_text('\n'.join(f'{i*.4} {i*.4+.3} {72+i%5}' for i in range(20)))
+    if minor_variation:
+     complete=[(i*.4,i*.4+.3,60+i%5) for i in range(20)]+[(9.1+i*.25,9.1+i*.25+.2,80+i) for i in range(3)]
+     notes=complete if output.name=='source-score' else complete[:20]+[complete[-1]]
+     (output/'melody_vocal.lab').write_text('\n'.join(f'{a} {b} {p}' for a,b,p in notes))
     if phrases:
      original,generated=self.phrase_notes((.44,.74,.51))
      notes=generated if output.name=='generated-score' or bad_check and output.name in ('aligned-score','aligned-vocal-score') else original
@@ -300,7 +335,7 @@ class ResingingTests(unittest.TestCase):
   with self.preflight(),patch.object(app,'run_job_process',side_effect=run),patch.object(app,'command_for',side_effect=command),patch.object(app,'settings',return_value={'backend':backend,'threads':2}),patch.object(app,'audio_info',side_effect=info),patch.object(app,'voice_sample',return_value=ref),patch.object(resinging.cloning,'convert_voice',side_effect=convert) as vc,patch.object(app,'mix_voice',side_effect=mix),patch.object(resinging.mixing,'measure',side_effect=loudness) as measured:
    if cancelled:
     with self.assertRaises(app.JobCancelled):resinging.process(app,job,d)
-   elif drift or truncated or bad_check:
+   elif drift or truncated or bad_check or minor_variation and not allow_minor:
     with self.assertRaises(ValueError):resinging.process(app,job,d)
     self.assertFalse((d/'audio.wav').exists());vc.assert_not_called()
    else:
@@ -316,6 +351,10 @@ class ResingingTests(unittest.TestCase):
     if initial_mislabeled_mix:
      self.assertEqual(result['alignment']['initial_alignment_source'],'isolated-generated-vocals')
      self.assertIn('melodia',result['alignment']['initial_mix_error'])
+    if minor_variation:
+     self.assertEqual(result['alignment']['minor_melodic_variations'][0]['different_notes'],2)
+     self.assertEqual(result['alignment']['verification_source'],'isolated-replacement-vocals')
+     self.assertTrue(any('--output' in a and a[a.index('--output')+1].endswith('aligned-vocal-score') for a in calls))
     if phrases or tempo:
      self.assertIn('verified_timing',result['alignment'])
      self.assertEqual(result['alignment']['verification_source'],'isolated-replacement-vocals' if mislabeled_mix else 'original-backing-mix')
@@ -338,6 +377,8 @@ class ResingingTests(unittest.TestCase):
  def test_phrase_pipeline_rejects_failed_audio_verification_before_cloning(self):self.exercise_pipeline(phrases=True,bad_check=True,clone=True)
  def test_mislabeled_mix_is_rechecked_against_replacement_voice_only(self):self.exercise_pipeline(phrases=True,mislabeled_mix=True)
  def test_mislabeled_initial_mix_is_checked_against_actual_voice_without_loosening_thresholds(self):self.exercise_pipeline(initial_mislabeled_mix=True)
+ def test_minor_variation_pipeline_requires_verification_on_actual_voice(self):self.exercise_pipeline(minor_variation=True)
+ def test_strict_pipeline_still_rejects_the_same_minor_variation(self):self.exercise_pipeline(minor_variation=True,allow_minor=False)
  def test_tempo_pipeline_verifies_the_actual_audio_before_optional_clone(self):self.exercise_pipeline(tempo=True,clone=True)
  def test_tempo_pipeline_cannot_publish_unverified_audio(self):self.exercise_pipeline(tempo=True,bad_check=True,clone=True)
 

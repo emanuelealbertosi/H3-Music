@@ -1,5 +1,12 @@
 # H3-Music
 
+**Coro e piccoli dettagli melodici:** in **Base originale**, **Accetta piccole
+variazioni del canto** completa il brano con un avviso per brevissimi frammenti
+parzialmente riconosciuti, verificando il risultato sulla nuova voce isolata.
+Frasi interamente mancanti e tempi errati continuano a fermare il lavoro.
+Disattiva l'opzione per mantenere il controllo severo. I LoRA conservano le
+impostazioni originali. [Criteri e prova sul caso Coro](docs/Coro-e-allineamento.md).
+
 **Parole al passo con lo spartito:** nello Studio un flag facoltativo aggancia le
 sezioni del testo ai tempi dell'ABC durante la generazione YuE2. Vale anche per
 il nuovo canto sulla base originale; testo e spartito restano invariati.

@@ -20,7 +20,10 @@ def validate_fields(req):
     source = req.get('base_import_id', '')
     if not isinstance(source, str) or len(source) > 200:
         raise ValueError('Canzone originale non valida.')
-    result = {'base_enabled': enabled, 'base_import_id': source}
+    allow_minor = req.get('base_allow_minor_variations', True)
+    if not isinstance(allow_minor, bool):
+        raise ValueError('Scelta delle piccole variazioni del canto non valida.')
+    result = {'base_enabled': enabled, 'base_import_id': source, 'base_allow_minor_variations': allow_minor}
     for key in ('base_start', 'base_end'):
         value = req.get(key, 0)
         if isinstance(value, bool):
@@ -110,13 +113,40 @@ def timing_stats(errors):
             'max_onset_error_seconds': max(errors)}
 
 
-def check_phrase_coverage(original, matched):
+def phrase_coverage(original, matched, allow_minor=False):
     # A good global ratio must not hide an entire missing refrain or phrase.
     recognized = {o for o,g in matched}; original_phrases = []
     for note in original:
         if not original_phrases or note[0]-original_phrases[-1][-1][1] > .6:
             original_phrases.append([])
         original_phrases[-1].append(note)
+    variations = []
+    if allow_minor:
+        index = 0
+        while index < len(original_phrases):
+            phrase = original_phrases[index]
+            count = sum(note in recognized for note in phrase)
+            duration = max(note[1] for note in phrase)-phrase[0][0]
+            # Keep tiny, partly recognized cadences with their surrounding phrase.
+            # All notes still count. Complete missing fragments are never rescued.
+            if 3 <= len(phrase) <= 4 and 0 < count < .7*len(phrase) and len(phrase)-count <= 2 and duration <= .9:
+                candidates = []
+                for neighbor in (index-1, index+1):
+                    if not 0 <= neighbor < len(original_phrases): continue
+                    other = original_phrases[neighbor]
+                    covered = sum(note in recognized for note in other)
+                    gap = phrase[0][0]-max(n[1] for n in other) if neighbor<index else other[0][0]-max(n[1] for n in phrase)
+                    if len(other)>=5 and covered/len(other)>=.7 and 0<=gap<=1.5 and (covered+count)/(len(other)+len(phrase))>=.7:
+                        candidates.append((gap, neighbor))
+                if candidates:
+                    neighbor = min(candidates)[1]
+                    variations.append({'start':phrase[0][0], 'end':max(n[1] for n in phrase),
+                                       'notes':len(phrase), 'matched_notes':count, 'different_notes':len(phrase)-count})
+                    left, right = sorted((index,neighbor))
+                    original_phrases[left:right+1] = [original_phrases[left]+original_phrases[right]]
+                    index = max(0,left-1)
+                    continue
+            index += 1
     for phrase in original_phrases:
         count = sum(note in recognized for note in phrase)
         if len(phrase)>=3 and count/len(phrase)<.7:
@@ -127,7 +157,11 @@ def check_phrase_coverage(original, matched):
                              f'(da {clock(phrase[0][0])} a {clock(max(n[1] for n in phrase))}: '
                              f'{count} note riconosciute su {len(phrase)}). Il mix è stato fermato. '
                              'Prova un seed diverso o un altro LoRA; ripetere con gli stessi parametri può produrre lo stesso risultato.')
-    return original_phrases
+    return original_phrases, variations
+
+
+def check_phrase_coverage(original, matched, allow_minor=False):
+    return phrase_coverage(original, matched, allow_minor)[0]
 
 
 def generation_options(app, options, original_notes):
@@ -153,14 +187,15 @@ def generation_options(app, options, original_notes):
     return result
 
 
-def phrase_alignment(original, generated, allow_phrases=True, verification=False):
+def phrase_alignment(original, generated, allow_phrases=True, verification=False, allow_minor=False):
     """Keep good constant alignments; repair only reliable phrase offsets."""
     matched = matched_notes(original, generated,verification=verification)
-    check_phrase_coverage(original, matched)
+    _, variations = phrase_coverage(original, matched, allow_minor)
     delay = statistics.median(g[0] - o[0] for o, g in matched)
     stats = timing_stats(abs(g[0] - o[0] - delay) for o, g in matched)
     report = {'original_notes': len(original), 'generated_notes': len(generated), 'matching_notes': len(matched),
               'vocal_delay_seconds': delay, **stats, 'method': 'SheetSage2 note recognition; constant delay only'}
+    if variations: report['minor_melodic_variations'] = variations
     constant_ok = abs(delay) <= 2.5 and stats['p90_onset_error_seconds'] <= .2 and stats['max_onset_error_seconds'] <= .65
     if constant_ok and (not allow_phrases or stats['p90_onset_error_seconds'] <= .08):
         return report
@@ -197,7 +232,7 @@ def phrase_alignment(original, generated, allow_phrases=True, verification=False
                      'min_gap_tempo':min(rates), 'max_gap_tempo':max(rates)}
 
 
-def tempo_alignment(original, generated):
+def tempo_alignment(original, generated, allow_minor=False):
     """Recover a small uniform tempo drift, requiring the whole vocal sequence."""
     if min(len(original),len(generated))<20 or original[-1][0]-original[0][0]<10:
         raise ValueError('Non ci sono abbastanza note per verificare una variazione di tempo.')
@@ -218,25 +253,26 @@ def tempo_alignment(original, generated):
             scale,offset=fit(pairs)
             if not .97-1e-7<=scale<=1.03+1e-7 or abs(scale-1)<.003 or abs(offset)>2.5 or len(pairs)/max(len(original),len(generated))<.7:
                 continue
-            phrases=check_phrase_coverage(original,pairs)
+            phrases,variations=phrase_coverage(original,pairs,allow_minor)
             stats=timing_stats(abs((g[0]-offset)/scale-o[0]) for o,g in pairs)
             if stats['p90_onset_error_seconds']>.15 or stats['max_onset_error_seconds']>.45:continue
             candidates.append({'original_notes':len(original),'generated_notes':len(generated),'matching_notes':len(pairs),
                 'vocal_delay_seconds':offset,'tempo_scale':scale,'voice_tempo_change_percent':(scale-1)*100,
                 'method':'SheetSage2 bounded tempo alignment; pitch-preserving voice correction',
                 'phrases':len(phrases),'predicted_corrected_timing':stats,**stats})
+            if variations:candidates[-1]['minor_melodic_variations']=variations
         except ValueError:continue
     if not candidates:raise ValueError('Il tempo del nuovo canto non è correggibile con sufficiente affidabilità.')
     return max(candidates,key=lambda r:(r['matching_notes'],-r['p90_onset_error_seconds']))
 
 
-def alignment(original, generated, allow_phrases=True, verification=False):
-    try:return phrase_alignment(original,generated,allow_phrases=allow_phrases,verification=verification)
+def alignment(original, generated, allow_phrases=True, verification=False, allow_minor=False):
+    try:return phrase_alignment(original,generated,allow_phrases=allow_phrases,verification=verification,allow_minor=allow_minor)
     except ValueError as original_error:
         # A verification must only measure the rendered audio, never propose
         # another correction that would make its own timing test pass.
         if not allow_phrases or verification:raise
-        try:return tempo_alignment(original,generated)
+        try:return tempo_alignment(original,generated,allow_minor=allow_minor)
         except ValueError:raise original_error
 
 
@@ -300,6 +336,8 @@ def render_aligned_voice(app, source, output, report, duration, source_duration,
 def process(app, job, d):
     req = job['request']; source, meta, start, end = preflight(app, req)
     app.check_cancel(job['id']); s = app.settings()
+    def align(original, generated, **kwargs):
+        return alignment(original, generated, allow_minor=req.get('base_allow_minor_variations',True), **kwargs)
     app.write_json(d/'request.json', req); app.write_json(d/'source.json', meta)
     def run(args, label, pct):
         app.check_cancel(job['id'])
@@ -346,7 +384,7 @@ def process(app, job, d):
     generated_notes = transcribe(generated/'audio.wav', d/'generated-score', generated_duration, 'Controllo dei tempi del nuovo canto', 65)
     fresh_stems = d/'generated-stems'; separated = False
     try:
-        report = alignment(original_notes, generated_notes)
+        report = align(original_notes, generated_notes)
     except ValueError as mixed_error:
         # Choirs and dense arrangements can make the mixed-audio recognizer
         # label a backing part as Vocal. Recheck the actual replacement voice
@@ -354,7 +392,7 @@ def process(app, job, d):
         separate(generated/'audio.wav', fresh_stems, 'Controllo della voce separata', 69)
         separated = True
         isolated_notes = transcribe(fresh_stems/'vocals.wav', d/'generated-vocal-score', generated_duration, 'Ricontrollo della melodia della sola voce', 72)
-        report = alignment(original_notes, isolated_notes)
+        report = align(original_notes, isolated_notes)
         report.update({'initial_alignment_source':'isolated-generated-vocals', 'initial_mix_error':str(mixed_error)})
     report.update({'start': start, 'end': end, 'original_duration': duration, 'generated_duration': generated_duration})
     app.write_json(d/'alignment.json', report)
@@ -362,7 +400,7 @@ def process(app, job, d):
         separate(generated/'audio.wav', fresh_stems, 'Estrazione del nuovo canto', 75)
     aligned = d/'new-singing.wav'
     render_aligned_voice(app,fresh_stems/'vocals.wav',aligned,report,duration,generated_duration,ff)
-    if 'anchors' in report or 'tempo_scale' in report:
+    if 'anchors' in report or 'tempo_scale' in report or report.get('minor_melodic_variations'):
         verification = d/'alignment-check.wav'
         inputs = ['-i',aligned]
         for name in ('drums','bass','other'): inputs += ['-i',stems/(name+'.wav')]
@@ -372,14 +410,18 @@ def process(app, job, d):
         ff(inputs+['-filter_complex',filters,'-ar','48000','-ac','2','-c:a','pcm_f32le',verification], 'Verifica del canto sulla base originale',83)
         checked = transcribe(verification,d/'aligned-score',duration,'Ricontrollo del ritmo corretto',84)
         def verify(notes):
-            timing = alignment(original_notes,notes,allow_phrases=False,verification=True)
+            timing = align(original_notes,notes,allow_phrases=False,verification=True)
             if abs(timing['vocal_delay_seconds']) > .12:
                 raise ValueError('Il canto riallineato conserva un ritardo troppo grande: il mix è stato fermato.')
             return timing
+        verified = None
+        mixed_error = None
         try:
             verified = verify(checked)
             report['verification_source'] = 'original-backing-mix'
-        except ValueError as mixed_error:
+        except ValueError as error:
+            mixed_error = str(error)
+        if mixed_error or report.get('minor_melodic_variations') or (verified or {}).get('minor_melodic_variations'):
             # In a dense mix SheetSage2 sometimes tags an entire sung refrain as
             # instrumental. Recheck the actual replacement voice alone, with
             # the same pitch, phrase coverage and timing requirements. Never
@@ -387,8 +429,10 @@ def process(app, job, d):
             isolated = transcribe(aligned,d/'aligned-vocal-score',duration,'Ricontrollo della voce isolata',85)
             verified = verify(isolated)
             report['verification_source'] = 'isolated-replacement-vocals'
-            report['mixed_verification_error'] = str(mixed_error)
+            if mixed_error: report['mixed_verification_error'] = mixed_error
         report['verified_timing'] = verified
+        if verified.get('minor_melodic_variations'):
+            report['minor_melodic_variations'] = verified['minor_melodic_variations']
         app.write_json(d/'alignment.json',report)
     fresh_voice = aligned
     if req.get('clone_enabled'):
