@@ -12,7 +12,8 @@ Frasi interamente mancanti e problemi seri di tempo continuano a fermare il lavo
 Disattiva l'opzione per mantenere il controllo severo. I LoRA conservano le
 impostazioni originali. [Criteri e prova sul caso Coro](docs/Coro-e-allineamento.md).
 
-**Parole al passo con lo spartito:** nello Studio un flag facoltativo aggancia le
+**Parole al passo con lo spartito:** sperimentale, disattivato di default; può
+alterare le parole cantate, quindi usalo con cautela. Il flag nello Studio aggancia le
 sezioni del testo ai tempi dell'ABC durante la generazione YuE2. Vale anche per
 il nuovo canto sulla base originale; testo e spartito restano invariati.
 Il risultato mostra le sezioni applicate e i TAG non abbinati. Con un vecchio

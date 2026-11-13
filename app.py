@@ -94,7 +94,7 @@ def validate(req):
  r['clone_voice']=req.get('clone_voice','')
  if not isinstance(r['clone_voice'],str) or len(r['clone_voice'])>200:raise ValueError('Voce non valida.')
  r['options']={}
- r['words_follow_score']=req.get('words_follow_score',True)
+ r['words_follow_score']=req.get('words_follow_score',False)
  if not isinstance(r['words_follow_score'],bool):raise ValueError('Scelta della sincronizzazione del testo non valida.')
  r['mix']=mixing.validate(req.get('mix'))
  r['voice_steps']=cloning.voice_steps(req.get('voice_steps',30))

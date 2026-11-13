@@ -165,7 +165,7 @@ def supported(engine):
 
 def prepare(app,req,folder,kind='generate'):
  report={'status':'disabled','sections':[]}
- if req.get('words_follow_score',True):
+ if req.get('words_follow_score',False):
   if kind=='plan' or not req.get('abc'):report['status']='no_score'
   elif req.get('options',{}).get('cfg_scale',1)!=1:report['status']='cfg_not_one'
   else:

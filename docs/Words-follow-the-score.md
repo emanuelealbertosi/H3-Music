@@ -1,9 +1,13 @@
 # Parole al passo con lo spartito
 
+**Sperimentale, disattivato di default.** Può alterare le parole cantate,
+ometterle o ripeterle. Usalo con cautela e confronta il risultato con il testo
+originale. Le scelte esplicite già salvate nei progetti vengono conservate.
+
 Nello **Studio → Composizione e controllo**, **Parole al passo con lo spartito**
 attiva un controllo facoltativo delle sezioni del testo durante la generazione.
-È inizialmente selezionato e la scelta viene salvata nel progetto. Disattivalo
-per mantenere il percorso precedente.
+È inizialmente disattivato e la scelta viene salvata nel progetto. Attivalo
+solo quando vuoi provare la sincronizzazione delle sezioni.
 
 Con uno spartito ABC fornito, oppure preparato automaticamente da **Base originale**,
 l'app abbina in ordine le sezioni `% verse`, `% chorus`, `% bridge` ecc. ai TAG

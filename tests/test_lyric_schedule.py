@@ -75,16 +75,24 @@ class ScheduleTests(unittest.TestCase):
   lyrics=LYRICS.replace('\n','\r\n');r=ls.schedule(SCORE,lyrics)
   self.assertEqual(len(r['sections']),2)
   self.assertTrue(lyrics.encode()[r['sections'][1]['byte_start']:r['sections'][1]['byte_end']].startswith(b'[Chorus]\r\n'))
- def test_flag_defaults_on_and_rejects_non_booleans(self):
-  self.assertTrue(app.validate({})['words_follow_score'])
+ def test_flag_defaults_off_and_rejects_non_booleans(self):
+  self.assertFalse(app.validate({})['words_follow_score'])
+  self.assertTrue(app.validate({'words_follow_score':True})['words_follow_score'])
   self.assertFalse(app.validate({'words_follow_score':False})['words_follow_score'])
   for value in ('true',1,None,[]):
    with self.subTest(value=value),self.assertRaisesRegex(ValueError,'sincronizzazione'):
     app.validate({'words_follow_score':value})
+ def test_request_without_flag_does_not_schedule_even_on_supported_engine(self):
+  with tempfile.TemporaryDirectory(prefix='tmp-schedule-',dir=app.ROOT/'tests') as temp:
+   dest=Path(temp);engine=dest/'engine.exe';engine.write_bytes(b'h3_lyric_schedule_file')
+   req={'lyrics':LYRICS,'abc':SCORE}
+   with patch.object(app,'ENGINE',engine):self.assertEqual(ls.prepare(app,req,dest),{})
+   self.assertEqual(json.loads((dest/'lyric-schedule.json').read_text())['status'],'disabled')
+   self.assertFalse((dest/'lyric-schedule.tsv').exists())
  def test_request_preparation_never_injects_words_into_prompts(self):
   with tempfile.TemporaryDirectory(prefix='tmp-schedule-',dir=app.ROOT/'tests') as temp:
    dest=Path(temp);engine=dest/'engine.exe';engine.write_bytes(b'h3_lyric_schedule_file')
-   req=app.validate({'style':'Italian pop','lyrics':LYRICS,'abc':SCORE});before=json.dumps(req)
+   req=app.validate({'style':'Italian pop','lyrics':LYRICS,'abc':SCORE,'words_follow_score':True});before=json.dumps(req)
    with patch.object(app,'ENGINE',engine):opts=ls.prepare(app,req,dest)
    self.assertEqual(json.dumps(req),before)
    rows=(dest/'lyric-schedule.tsv').read_text().splitlines();self.assertEqual(len(rows),2)
@@ -93,7 +101,7 @@ class ScheduleTests(unittest.TestCase):
  def test_old_engines_disabled_scoreless_and_cfg_keep_old_path(self):
   with tempfile.TemporaryDirectory(prefix='tmp-schedule-',dir=app.ROOT/'tests') as temp:
    dest=Path(temp);engine=dest/'engine.exe';engine.write_bytes(b'legacy')
-   req=app.validate({'lyrics':LYRICS,'abc':SCORE})
+   req=app.validate({'lyrics':LYRICS,'abc':SCORE,'words_follow_score':True})
    for updates,status in (({},'unsupported_engine'),({'words_follow_score':False},'disabled'),
                           ({'abc':''},'no_score'),({'options':{'cfg_scale':1.2}},'cfg_not_one')):
     with self.subTest(status=status),patch.object(app,'ENGINE',engine):
