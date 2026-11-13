@@ -1,0 +1,104 @@
+{
+  "repo": "ntc-ai/yue2-particle-sliders",
+  "revision": "31649319eee53e6da999cc4aff3e081d213f7911",
+  "license": "cc-by-nc-4.0",
+  "variant": "distilled-rank8-v2",
+  "adapters": {
+    "female": {
+      "label": "Voce femminile",
+      "file": "distilled-rank8-v2/native/female_v2_distilled_rank8.safetensors",
+      "size": 12891944,
+      "sha256": "318ddd368bd59552de42575936aa606f4b19eb3157915561568639e53324cc52"
+    },
+    "male": {
+      "label": "Voce maschile",
+      "file": "distilled-rank8-v2/native/male_v2_distilled_rank8.safetensors",
+      "size": 12891944,
+      "sha256": "d54e33bcc987d31e8143f9bb7e3ce9337e4f64c419aa61a6698a857ed643f311"
+    },
+    "pop": {
+      "label": "Pop",
+      "file": "distilled-rank8-v2/native/pop_v2_distilled_rank8.safetensors",
+      "size": 12891944,
+      "sha256": "b5bf6b0f4adf115b2074beb917ca25b2791fd91cf3661271c780c2741fd44b04"
+    },
+    "hiphop": {
+      "label": "Hip-hop",
+      "file": "distilled-rank8-v2/native/hiphop_v2_distilled_rank8.safetensors",
+      "size": 12891944,
+      "sha256": "70d47848af05d7c53418a18542c82b9feeb18e2acdc41c454e05906a7ca0a7a0"
+    },
+    "rnb": {
+      "label": "R&B",
+      "file": "distilled-rank8-v2/native/rnb_v2_distilled_rank8.safetensors",
+      "size": 12891944,
+      "sha256": "b3459b5fba7ca6170daa9b0383a14ba4cb45b9b4ebc6be64661b66b98adda7c9"
+    },
+    "indie-rock": {
+      "label": "Indie rock",
+      "file": "distilled-rank8-v2/native/indie-rock_v2_distilled_rank8.safetensors",
+      "size": 12891952,
+      "sha256": "96516d60c7a4524dd77c8eb45030c00a51c12b6467445867770d99ba4954fb88"
+    },
+    "pop-punk": {
+      "label": "Pop punk",
+      "file": "distilled-rank8-v2/native/pop-punk_v2_distilled_rank8.safetensors",
+      "size": 12891944,
+      "sha256": "a7906eb5f111992a81d8c0ed4f67df5cdd47b891c453e5d3a7f29b4131941878"
+    },
+    "metal": {
+      "label": "Metal",
+      "file": "distilled-rank8-v2/native/metal_v2_distilled_rank8.safetensors",
+      "size": 12891944,
+      "sha256": "5a81e845e57effdd8e5a28ac6e0747798d9e38407f7179e9375d01ad8b44e8ee"
+    },
+    "country": {
+      "label": "Country",
+      "file": "distilled-rank8-v2/native/country_v2_distilled_rank8.safetensors",
+      "size": 12891944,
+      "sha256": "469bd6168a7a8d46f36f66888964329cfe419e9f293d7cc1505318f4b38dfc49"
+    },
+    "acoustic-folk": {
+      "label": "Acoustic folk",
+      "file": "distilled-rank8-v2/native/acoustic-folk_v2_distilled_rank8.safetensors",
+      "size": 12891952,
+      "sha256": "b849721f2f76b98f558d072213783730d7c88293aea5a86dbf8a313fe285bd58"
+    },
+    "house": {
+      "label": "House",
+      "file": "distilled-rank8-v2/native/house_v2_distilled_rank8.safetensors",
+      "size": 12891944,
+      "sha256": "62cf7d88a5c2dc0cb91fb38ea8e3978d589709229cb8e491f285b34d30add217"
+    },
+    "disco-funk": {
+      "label": "Disco funk",
+      "file": "distilled-rank8-v2/native/disco-funk_v2_distilled_rank8.safetensors",
+      "size": 12891952,
+      "sha256": "78d73a7ebaf12becf7409d154fed3777b15376a020d6b6e9a56c320ca335401d"
+    },
+    "kpop": {
+      "label": "K-pop",
+      "file": "distilled-rank8-v2/native/kpop_v2_distilled_rank8.safetensors",
+      "size": 12891944,
+      "sha256": "e73a1ea28b576bfacb59edb85e5e535013f0640cfe91fac7cb88f3bc5aa453f4"
+    },
+    "reggaeton": {
+      "label": "Reggaeton",
+      "file": "distilled-rank8-v2/native/reggaeton_v2_distilled_rank8.safetensors",
+      "size": 12891944,
+      "sha256": "d38c18bc01ebd63b18bf6445ebcd8f59b5665dbba758f03b69ccc7f32870cd1a"
+    },
+    "afrobeats": {
+      "label": "Afrobeats",
+      "file": "distilled-rank8-v2/native/afrobeats_v2_distilled_rank8.safetensors",
+      "size": 12891944,
+      "sha256": "18004cbc0af16f793c9a77371943a674728ae20184ef9296dfab7cef46d05755"
+    },
+    "lofi": {
+      "label": "Lo-fi",
+      "file": "distilled-rank8-v2/native/lofi_v2_distilled_rank8.safetensors",
+      "size": 12891944,
+      "sha256": "a61511ec6d6eab25813d372efda73b4e9a117bf1b4f5e89834181ac8d9b1e5dc"
+    }
+  }
+}

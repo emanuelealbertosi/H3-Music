@@ -1,0 +1,27 @@
+const {chromium}=require('playwright'),assert=require('node:assert/strict');
+(async()=>{const b=await chromium.launch({headless:true,channel:'msedge'});try{
+ const p=await b.newPage({viewport:{width:1440,height:1000}}),errors=[],jobs=[],installs=[];
+ p.on('pageerror',e=>errors.push(e.message));const base=process.env.H3_TEST_URL;assert.ok(base);
+ await p.route('**/api/jobs',async route=>{assert.equal(route.request().method(),'POST');jobs.push(route.request().postDataJSON());await route.fulfill({json:{ids:[]}})});
+ await p.route('**/api/loras',route=>route.fulfill({json:{adapters:Array.from({length:4},()=>({installed:true})),particles:Array.from({length:16},()=>({installed:true})),operation:{status:'idle'}}}));
+ await p.route('**/api/loras/install',async route=>{installs.push(route.request().postDataJSON());await route.fulfill({json:{ok:true}})});
+ await p.goto(base+'/#studio');await p.locator('#lora').waitFor();
+ assert.equal(await p.locator('#lora').inputValue(),'');assert.equal(await p.locator('#particle-strength').isVisible(),false);
+ assert.equal(await p.locator('#lora option').count(),21);
+ await p.locator('#lora').selectOption('particle-male');assert.equal(await p.locator('#particle-strength').isVisible(),true);
+ await p.locator('#particle-strength').fill('0.5');await p.locator('#style').fill('Italian acoustic pop');await p.locator('#lyrics').fill('[Verse]\nIl canto resta qui');
+ await p.locator('#words-follow-score').uncheck();await p.locator('#generate').click();await p.waitForFunction(()=>!document.querySelector('#generate').disabled);
+ assert.equal(jobs[0].request.lora,'particle-male');assert.equal(jobs[0].request.particle_strength,.5);assert.equal(jobs[0].request.words_follow_score,false);
+ await p.reload();await p.locator('#lora').waitFor();assert.equal(await p.locator('#lora').inputValue(),'particle-male');assert.equal(await p.locator('#particle-strength').inputValue(),'0.5');
+ await p.locator('#particle-strength').fill('0');await p.locator('#generate').click();await p.waitForFunction(()=>!document.querySelector('#generate').disabled);assert.equal(jobs[1].request.particle_strength,0);
+ await p.locator('#lora').selectOption('notte');assert.equal(await p.locator('#particle-strength').isVisible(),false);
+ await p.locator('#lora').selectOption('particle-female');assert.equal(await p.locator('#particle-strength').inputValue(),'0');
+ await p.setViewportSize({width:390,height:844});assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
+ await p.goto(base+'/#system');await p.locator('#particle-install-one').waitFor();await p.waitForFunction(()=>document.querySelector('#particle-status').textContent.includes('16 LoRA'));
+ assert.match(await p.locator('#lora-status').textContent(),/4 LoRA su 4/);
+ await p.locator('#particle-install-choice').selectOption('particle-male');await p.locator('#particle-install-one').click();await p.waitForFunction(()=>!document.querySelector('#particle-install-one').disabled);
+ await p.locator('#particle-install-all').click();await p.waitForFunction(()=>!document.querySelector('#particle-install-all').disabled);
+ assert.deepEqual(installs,[{family:'particle',ids:['particle-male']},{family:'particle'}]);
+ assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);assert.deepEqual(errors,[]);
+ console.log('PASS: Particle choices, strength 0/0.5, draft persistence, CNZN unchanged, optional individual/all install and mobile');
+}finally{await b.close()}})().catch(e=>{console.error(e);process.exit(1)});

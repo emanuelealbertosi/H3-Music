@@ -2,6 +2,7 @@
 import hashlib, json, os, struct, urllib.request
 from pathlib import Path
 import model_store
+import particle_loras
 
 REVISION = '89508af770d21ea26215603fdd777f182ba4ecee'
 REPO = 'becausereasons/yue2-cnzn-canzone-italiana'
@@ -15,6 +16,8 @@ SIZE = 117500808
 
 def validate(value):
  if value in ('', None): return ''
+ if isinstance(value,str) and value.startswith('particle-'):
+  particle_loras.validate(value);return value
  if not isinstance(value,str) or value not in CATALOG: raise ValueError('LoRA italiano non valido.')
  return value
 
@@ -107,9 +110,10 @@ def install(root,progress=lambda **kwargs:None):
    pending=folder/'installed.tmp';pending.write_text(json.dumps(record),encoding='utf-8');pending.replace(folder/'installed.json')
   progress(status='completed',file='',done=SIZE,total=SIZE)
 
-def session_options(root,ident):
+def session_options(root,ident,particle_strength=1):
  ident=validate(ident)
  if not ident:return {}
+ if ident.startswith('particle-'):return particle_loras.session_options(root,ident,particle_strength)
  if not installed(root,ident,True):raise ValueError('Installa o ripara i quattro LoRA italiani da Sistema.')
  folder=directory(root)/ident
  return {'yue2.ar_lora':str(folder/'ar.safetensors'),'yue2.nar_lora':str(folder/'nar.safetensors'),
@@ -117,6 +121,7 @@ def session_options(root,ident):
 
 def style_prompt(style,ident):
  if not validate(ident):return style
+ if ident.startswith('particle-'):return style
  prefix='cnzn, Italian'
  if ident=='sussurro':prefix+=', whispered spoken vocals'
  return prefix+', '+style

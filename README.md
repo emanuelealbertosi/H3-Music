@@ -1,5 +1,10 @@
 # H3-Music
 
+**Particle v2 facoltative:** 16 LoRA distillate per voce maschile/femminile e
+generi musicali, scaricabili singolarmente o tutte da Sistema e selezionabili
+nello Studio con intensità 0–1. Non si sommano alle CNZN e non garantiscono
+la fedeltà delle parole cantate. [Uso e provenienza](docs/Particle-v2.md).
+
 **Coro e piccoli dettagli melodici:** in **Base originale**, **Accetta piccole
 variazioni del canto** completa il brano con un avviso per brevissimi frammenti
 parzialmente riconosciuti, verificando il risultato sulla nuova voce isolata.

@@ -76,6 +76,7 @@ def validate(req):
  r={k:str(req.get(k,'')).strip() for k in ('title','style','lyrics','abc','notes')}
  r['abc']=normalize_abc(r['abc'])
  r['lora']=loras.validate(req.get('lora',''))
+ r['particle_strength']=loras.particle_loras.strength(req.get('particle_strength',1))
  r['title']=r['title'][:120] or 'Senza titolo'
  for k,limit in [('style',4000),('lyrics',16000),('abc',50000),('notes',20000)]:
   if len(r[k])>limit: raise ValueError(k+': testo troppo lungo.')
@@ -342,7 +343,7 @@ def _enqueue(data):
  if not p: raise ValueError('Salva prima il progetto.')
  req=validate(data.get('request',json.loads(p['request'])))
  if req['lora']:
-  loras.session_options(ROOT,req['lora'])
+  loras.session_options(ROOT,req['lora'],req['particle_strength'])
   check_lora_engine()
  if not req['lyrics'] or not req['style'] and not req['base_enabled']: raise ValueError('Inserisci stile musicale e testo.')
  kind=data.get('kind','generate')
@@ -420,7 +421,7 @@ def command_for(job,d):
  cmd=[str(ENGINE),'--task','gen','--family','yue2','--model',str(MODEL),'--backend',s['backend'],'--threads',str(s['threads']),'--session-option','yue2.model_gguf='+main_model_file()]
  if req.get('lora'):
   check_lora_engine()
-  for k,v in loras.session_options(ROOT,req['lora']).items():cmd+=['--session-option',f'{k}={v}']
+  for k,v in loras.session_options(ROOT,req['lora'],req.get('particle_strength',1)).items():cmd+=['--session-option',f'{k}={v}']
  for k,v in memory_profile().items(): cmd+=[ '--session-option','%s=%s'%(k,v)]
  return cmd+['--request-sequence',str(d/'engine-request.json'),'--out-dir',str(d),'--log','--metrics']
 
@@ -587,17 +588,25 @@ def check_lora_engine():
  if not all(k in help_text for k in ('yue2.ar_lora','yue2.nar_lora')):
   raise ValueError('Il motore installato non supporta ancora i LoRA. Aggiorna il motore con '+('Installa-Mac.command' if platform_runtime.macos() else 'install.bat (CPU) o Attiva-GPU.bat (NVIDIA)')+'.')
 
-def install_loras():
+def install_loras(data=None):
  global LORA_OPERATION
+ data=data or {}
+ family=data.get('family','cnzn')
+ if family not in ('cnzn','particle'):raise ValueError('Famiglia LoRA non valida.')
+ identifiers=data.get('ids')
+ if family=='particle' and identifiers is not None:
+  if not isinstance(identifiers,list) or not identifiers:raise ValueError('Selezione Particle non valida.')
+  for ident in identifiers:loras.particle_loras.validate(ident)
  with LOCK:
   if LORA_OPERATION['status'] in ('starting','downloading','converting'):raise ValueError('Installazione LoRA già in corso.')
   with model_store.exclusive(ROOT):model_store.check_idle(ROOT)
-  LORA_OPERATION={'status':'starting'}
+  LORA_OPERATION={'status':'starting','family':family}
   def run():
    try:
     def report(**values):
      with LOCK:LORA_OPERATION.update(values)
-    loras.install(ROOT,report)
+    if family=='particle':loras.particle_loras.install(ROOT,identifiers,report)
+    else:loras.install(ROOT,report)
    except Exception as e:
     with LOCK:LORA_OPERATION.update(status='failed',error=str(e))
   threading.Thread(target=run,daemon=True).start()
@@ -749,7 +758,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
    self.check_host(); parsed=urllib.parse.urlparse(self.path); path=urllib.parse.unquote(parsed.path)
    if path=='/api/health': return self.json_response({'app':'H3-Music','status':'ok','pid':os.getpid()})
    if path=='/api/models/location':return self.json_response(model_location_status())
-   if path=='/api/loras':return self.json_response({'adapters':loras.status(ROOT),'operation':dict(LORA_OPERATION)})
+   if path=='/api/loras':return self.json_response({'adapters':loras.status(ROOT),'particles':loras.particle_loras.status(ROOT),'operation':dict(LORA_OPERATION)})
    if path=='/api/state':
     projects=db('SELECT * FROM projects WHERE archived=0 ORDER BY updated DESC')
     for p in projects: p['request']=json.loads(p['request'])
@@ -843,7 +852,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
    elif path=='/api/lyrics/context':result=lyric_context(data)
    elif path=='/api/lyrics/adapt':
     result=assistant_operation('lyrics/adapt',data)
-   elif path=='/api/loras/install':result=install_loras()
+   elif path=='/api/loras/install':result=install_loras(data)
    elif path=='/api/export': result=export_audio(data)
    elif path=='/api/bundle': result=bundle(data)
    elif path=='/api/shutdown':
