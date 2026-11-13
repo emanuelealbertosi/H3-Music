@@ -1,5 +1,11 @@
 # H3-Music
 
+**Ritmo e duetti:** Base originale corregge anche piccole derive progressive
+quando migliora l'allineamento verificato. I TAG maschile/femminile vengono
+rafforzati con istruzioni nello stile, senza riscrivere il testo; lo Studio
+segnala gli adattatori che possono contrastare il duetto.
+[Funzionamento e limiti](docs/Ritmo-e-duetti.md).
+
 **Particle v2 facoltative:** 16 LoRA distillate per voce maschile/femminile e
 generi musicali, scaricabili singolarmente o tutte da Sistema e selezionabili
 nello Studio con intensità 0–1. Non si sommano alle CNZN e non garantiscono

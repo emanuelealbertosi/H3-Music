@@ -245,6 +245,24 @@ class ResingingTests(unittest.TestCase):
    original,generated=self.tempo_notes(seconds,1.,.1)
    self.assertEqual(resinging.alignment(original,generated),resinging.phrase_alignment(original,generated))
    self.assertNotIn('tempo_scale',resinging.alignment(original,generated))
+ def test_small_progressive_drift_is_corrected_even_when_constant_check_passes(self):
+  for seconds,scale in ((90,.998),(140,1.002),(240,.999)):
+   original,generated=self.tempo_notes(seconds,scale,.1)
+   primary=resinging.phrase_alignment(original,generated)
+   self.assertNotIn('tempo_scale',primary)
+   corrected=resinging.alignment(original,generated)
+   self.assertAlmostEqual(corrected['tempo_scale'],scale,places=8)
+   self.assertIn('replaced_constant_timing',corrected)
+   self.assertLess(corrected['median_onset_error_seconds'],primary['median_onset_error_seconds'])
+   self.assertLessEqual(corrected['p90_onset_error_seconds'],primary['p90_onset_error_seconds'])
+ def test_tiny_or_short_drift_does_not_trigger_unnecessary_correction(self):
+  for seconds,scale in ((25,1.002),(140,1.0003)):
+   original,generated=self.tempo_notes(seconds,scale,.1)
+   self.assertEqual(resinging.alignment(original,generated),resinging.phrase_alignment(original,generated))
+ def test_verification_never_proposes_tempo_correction_to_pass_itself(self):
+  original,generated=self.tempo_notes(140,1.002,0)
+  measured=resinging.alignment(original,generated,allow_phrases=False,verification=True)
+  self.assertNotIn('tempo_scale',measured)
  def test_tempo_correction_does_not_accept_large_changes_or_wrong_melodies(self):
   for scale,offset,transpose in ((.96,.4,0),(1.04,.4,0),(.982,3.,0),(.982,.4,12)):
    original,generated=self.tempo_notes(120,scale,offset)

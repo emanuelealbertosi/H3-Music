@@ -5,7 +5,7 @@ from pathlib import Path
 from contextlib import contextmanager
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT))
-import transcription, execution, cloning, mixing, remote_access, library_cleanup, platform_runtime, model_store, resinging, loras, lyric_meter, assistant_engine, assistant_api, lyric_schedule
+import transcription, execution, cloning, mixing, remote_access, library_cleanup, platform_runtime, model_store, resinging, loras, lyric_meter, assistant_engine, assistant_api, lyric_schedule, vocal_roles
 APP=sys.modules[__name__]
 DATA=Path(os.environ.get('H3_MUSIC_DATA',str(ROOT/'data')))
 OUT=DATA/'outputs'
@@ -411,7 +411,9 @@ def command_for(job,d):
   s=settings()
   inp=normalize_audio(source_audio(job['request'].get('source_id')),d/'input.wav')
   return [str(ENGINE),'--task','sep','--family','htdemucs','--model',str(separation_model()),'--backend',s['backend'],'--threads',str(s['threads']),'--audio',str(inp),'--out-dir',str(d),'--log','--metrics']
- req=job['request']; opts=music_options(req['options'])|{'style':loras.style_prompt(req['style'],req.get('lora','')),'cot':req['cot'],'seed':str(req['seed']),'h3_artifact_dir':str(d),'h3_plan_only':'true' if job['kind']=='plan' else 'false'}
+ req=job['request']; style,roles=vocal_roles.guidance(req['style'],req['lyrics'])
+ opts=music_options(req['options'])|{'style':loras.style_prompt(style,req.get('lora','')),'cot':req['cot'],'seed':str(req['seed']),'h3_artifact_dir':str(d),'h3_plan_only':'true' if job['kind']=='plan' else 'false'}
+ if roles:write_json(d/'vocal-roles.json',roles)
  opts.update(lyric_schedule.prepare(APP,req,d,job['kind']))
  if req['abc']:
   (d/'input.abc').write_text(normalize_abc(req['abc']),encoding='utf-8',newline='\n'); opts['abc_file']=str(d/'input.abc')
@@ -469,6 +471,7 @@ def finish_artifacts(job,d):
  flags=d/'generation_flags.json'; result=json.loads(flags.read_text()) if flags.exists() else {}
  schedule_file=d/'lyric-schedule.json'
  if schedule_file.exists():result['words_follow_score']=json.loads(schedule_file.read_text(encoding='utf-8'))
+ if (d/'vocal-roles.json').exists():result['vocal_roles']=json.loads((d/'vocal-roles.json').read_text(encoding='utf-8'))
  if job['kind']=='generate':
   audio=d/'audio.wav'
   if not audio.exists() or audio.stat().st_size<100: raise RuntimeError('Il motore non ha prodotto audio utilizzabile.')

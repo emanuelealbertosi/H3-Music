@@ -281,7 +281,8 @@ def tempo_alignment(original, generated, allow_minor=False):
                 if not .97-1e-7<=scale<=1.03+1e-7 or abs(offset)>2.5:raise ValueError('Variazione di tempo troppo grande.')
                 pairs=matched_notes(original,generated,verification=True,time_scale=scale,time_offset=offset)
             scale,offset=fit(pairs)
-            if not .97-1e-7<=scale<=1.03+1e-7 or abs(scale-1)<.003 or abs(offset)>2.5 or len(pairs)/max(len(original),len(generated))<.7:
+            span=original[-1][0]-original[0][0]
+            if not .97-1e-7<=scale<=1.03+1e-7 or abs(scale-1)<.0005 or abs(scale-1)*span<.12 or abs(offset)>2.5 or len(pairs)/max(len(original),len(generated))<.7:
                 continue
             phrases,variations=phrase_coverage(original,pairs,allow_minor)
             stats=timing_stats(abs((g[0]-offset)/scale-o[0]) for o,g in pairs)
@@ -300,13 +301,27 @@ def tempo_alignment(original, generated, allow_minor=False):
 
 
 def alignment(original, generated, allow_phrases=True, verification=False, allow_minor=False):
-    try:return phrase_alignment(original,generated,allow_phrases=allow_phrases,verification=verification,allow_minor=allow_minor)
+    try:primary=phrase_alignment(original,generated,allow_phrases=allow_phrases,verification=verification,allow_minor=allow_minor)
     except ValueError as original_error:
         # A verification must only measure the rendered audio, never propose
         # another correction that would make its own timing test pass.
         if not allow_phrases or verification:raise
         try:return tempo_alignment(original,generated,allow_minor=allow_minor)
         except ValueError:raise original_error
+    # A passing constant offset can still leave an audible progressive drift.
+    # Verification only measures the rendered result, never a new correction.
+    if (allow_phrases and not verification and 'anchors' not in primary and
+            original[-1][0]-original[0][0]>=45 and primary['median_onset_error_seconds']>.02):
+        try:
+            corrected=tempo_alignment(original,generated,allow_minor=allow_minor)
+            before=primary['median_onset_error_seconds'];after=corrected['median_onset_error_seconds']
+            if (before-after>=.015 and after<=before*.75 and
+                    corrected['p90_onset_error_seconds']<=primary['p90_onset_error_seconds'] and
+                    corrected['matching_notes']>=primary['matching_notes']*.98):
+                corrected['replaced_constant_timing']={k:primary[k] for k in ('median_onset_error_seconds','p90_onset_error_seconds','max_onset_error_seconds')}
+                return corrected
+        except ValueError:pass
+    return primary
 
 
 def phrase_intervals(report, duration, source_duration):
@@ -516,6 +531,8 @@ def process(app, job, d):
     schedule_file = generated/'lyric-schedule.json'
     if schedule_file.exists():
         result['words_follow_score'] = json.loads(schedule_file.read_text(encoding='utf-8'))
+    if (generated/'vocal-roles.json').exists():
+        result['vocal_roles'] = json.loads((generated/'vocal-roles.json').read_text(encoding='utf-8'))
     if req.get('clone_enabled'): result.update({'voice': req['clone_voice'], 'voice_steps': req['voice_steps']})
     def digest(path):
         with path.open('rb') as stream: return hashlib.file_digest(stream, 'sha256').hexdigest()
