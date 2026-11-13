@@ -43,3 +43,21 @@ richiede ancora un adattamento metrico e un ascolto del risultato.
 Fonti: [interfaccia e cover ufficiali YuE2](https://github.com/multimodal-art-projection/YuE/blob/main/skills/yue2-music/references/generation-and-covers.md),
 [Particle v2](https://huggingface.co/ntc-ai/yue2-particle-sliders),
 [CNZN](https://huggingface.co/becausereasons/yue2-cnzn-canzone-italiana).
+
+## Rallentamenti locali
+
+Se una correzione unica non riesce, H3 può stimare un tempo separato per ciascuna
+frase affidabile. Il tentativo richiede almeno 30 abbinamenti su un tratto di
+almeno 30 secondi, con copertura melodica valida in ogni frase. Il tempo globale
+resta entro ±3% e il ritardo globale entro 2,5 secondi; soltanto il 20% al massimo
+degli abbinamenti può appartenere a frasi con un tempo locale fuori da ±3%.
+Le velocità locali e i raccordi devono rientrare nello stesso intervallo
+0,85–1,18 già previsto per i raccordi fra frasi. Prima del render, lo scarto
+previsto deve restare entro 150 ms al 90° percentile e 450 ms nel caso peggiore.
+
+È una correzione della sola voce: spartito, parole, seed e accompagnamento
+rimangono quelli della richiesta. La verifica finale sull'audio corretto usa
+le soglie normali e non può applicare altre correzioni per superare il controllo.
+Un brano già accettato segue il percorso precedente. Un canto mancante, una
+melodia diversa o una variazione globale di tempo eccessiva non viene recuperato
+con questo metodo. Il rapporto salva `local_tempo_scales` e gli ancoraggi usati.

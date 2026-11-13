@@ -263,6 +263,28 @@ class ResingingTests(unittest.TestCase):
   original,generated=self.tempo_notes(140,1.002,0)
   measured=resinging.alignment(original,generated,allow_phrases=False,verification=True)
   self.assertNotIn('tempo_scale',measured)
+ def localized_example(self):
+  main=[(2+i*.3,2+i*.3+.25,60+(i*13)%17) for i in range(300)]
+  tail=[(100+i*.5,100+i*.5+.4,65+i%5) for i in range(14)]
+  original=main+tail
+  generated=[(.99*a+.1,.99*b+.1,p) for a,b,p in main]
+  generated += [(.99*100+.1+1.08*(a-100),.99*100+.1+1.08*(b-100),p) for a,b,p in tail]
+  return original,generated
+ def test_localized_slowdown_is_corrected_without_loosening_checks(self):
+  original,generated=self.localized_example()
+  with self.assertRaises(ValueError):resinging.tempo_alignment(original,generated)
+  report=resinging.alignment(original,generated)
+  self.assertIn('localized tempo',report['method'])
+  self.assertAlmostEqual(report['global_tempo_scale'],.99,places=7)
+  self.assertAlmostEqual(report['local_tempo_scales'][-1],1.08,places=7)
+  self.assertLess(report['p90_onset_error_seconds'],1e-7)
+  self.assertTrue(.85<=report['min_gap_tempo']<=report['max_gap_tempo']<=1.18)
+  with self.assertRaises(ValueError):resinging.alignment(original,generated,allow_phrases=False,verification=True)
+ def test_localized_fallback_rejects_missing_phrases_global_drift_and_offset(self):
+  original,generated=self.localized_example()
+  for bad in (generated[:-14],[(1.04*a,1.04*b,p) for a,b,p in original],
+              [(a+3,b+3,p) for a,b,p in original],[(a,b,p+12) for a,b,p in generated]):
+   with self.subTest(notes=len(bad)),self.assertRaises(ValueError):resinging.localized_tempo_alignment(original,bad)
  def test_tempo_correction_does_not_accept_large_changes_or_wrong_melodies(self):
   for scale,offset,transpose in ((.96,.4,0),(1.04,.4,0),(.982,3.,0),(.982,.4,12)):
    original,generated=self.tempo_notes(120,scale,offset)
@@ -349,7 +371,7 @@ class ResingingTests(unittest.TestCase):
      onset=next(i/48000 for i,value in enumerate(values) if abs(value)>1000)
      self.assertAlmostEqual(onset,(.5+.39431)/scale,delta=.03)
      self.assertEqual(max(map(abs,values[:round(.7*48000)])),0)
- def exercise_pipeline(self, clone=False, cancelled=False, drift=False, truncated=False, backend='cpu', automatic=True, phrases=False, bad_check=False, mislabeled_mix=False, tempo=False, initial_mislabeled_mix=False, minor_variation=False, allow_minor=True):
+ def exercise_pipeline(self, clone=False, cancelled=False, drift=False, truncated=False, backend='cpu', automatic=True, phrases=False, bad_check=False, mislabeled_mix=False, tempo=False, initial_mislabeled_mix=False, minor_variation=False, allow_minor=True, require_isolated=False):
   req=app.validate(self.req | {'clone_enabled': clone, 'clone_voice': 'sample' if clone else '', 'voice_steps': 50, 'mix': {'automatic': automatic}, 'base_allow_minor_variations':allow_minor})
   project=app.project_save({'request':req})
   with self.preflight(),patch.object(app,'ready',return_value={'ready':True}),patch.object(resinging.cloning,'preflight'):
@@ -422,8 +444,8 @@ class ResingingTests(unittest.TestCase):
      self.assertTrue(any('--output' in a and a[a.index('--output')+1].endswith('aligned-vocal-score') for a in calls))
     if phrases or tempo:
      self.assertIn('verified_timing',result['alignment'])
-     self.assertEqual(result['alignment']['verification_source'],'isolated-replacement-vocals' if mislabeled_mix else 'original-backing-mix')
-     if mislabeled_mix:
+     self.assertEqual(result['alignment']['verification_source'],'isolated-replacement-vocals' if mislabeled_mix or require_isolated else 'original-backing-mix')
+     if mislabeled_mix or require_isolated:
       isolated=next(a for a in calls if '--output' in a and pathlib.Path(a[a.index('--output')+1]).name=='aligned-vocal-score')
       self.assertEqual(isolated[isolated.index('--input')+1],str(d/'new-singing.wav'))
      verification=next(a for a in calls if str(d/'alignment-check.wav')==a[-1])
@@ -446,6 +468,13 @@ class ResingingTests(unittest.TestCase):
  def test_strict_pipeline_still_rejects_the_same_minor_variation(self):self.exercise_pipeline(minor_variation=True,allow_minor=False)
  def test_tempo_pipeline_verifies_the_actual_audio_before_optional_clone(self):self.exercise_pipeline(tempo=True,clone=True)
  def test_tempo_pipeline_cannot_publish_unverified_audio(self):self.exercise_pipeline(tempo=True,bad_check=True,clone=True)
+ def test_localized_tempo_always_verifies_isolated_voice_even_when_mix_passes(self):
+  real_alignment=resinging.alignment
+  def marked(*args,**kwargs):
+   report=real_alignment(*args,**kwargs)
+   if 'anchors' in report:report['local_tempo_scales']=[1.,1.08]
+   return report
+  with patch.object(resinging,'alignment',side_effect=marked):self.exercise_pipeline(phrases=True,require_isolated=True)
 
 
 if __name__=='__main__':unittest.main(verbosity=2)

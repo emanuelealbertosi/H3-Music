@@ -300,6 +300,60 @@ def tempo_alignment(original, generated, allow_minor=False):
     return max(candidates,key=lambda r:(r['matching_notes'],-r['p90_onset_error_seconds']))
 
 
+def localized_tempo_alignment(original, generated, allow_minor=False):
+    """Repair a local slowdown when one affine tempo cannot fit the whole song.
+
+    This is a last fallback. Global tempo remains within +/-3%; only a minority
+    of notes may need a different local slope. Rendered audio must still pass
+    the normal, non-correcting final verification.
+    """
+    pairs=matched_notes(original,generated)
+    if len(pairs)<30 or original[-1][0]-original[0][0]<30:
+        raise ValueError('Contesto insufficiente per correggere una variazione locale di tempo.')
+    phrase_coverage(original,pairs,allow_minor)
+    sample=pairs[::max(1,math.ceil(len(pairs)/100))]
+    slopes=[(h[0]-g[0])/(p[0]-o[0]) for i,(o,g) in enumerate(sample) for p,h in sample[i+1:] if p[0]-o[0]>10]
+    global_scale=statistics.median(slopes)
+    global_offset=statistics.median(g[0]-global_scale*o[0] for o,g in pairs)
+    if not .97<=global_scale<=1.03 or abs(global_offset)>2.5:
+        raise ValueError('Il tempo globale si discosta troppo dalla base originale.')
+    groups=[]
+    for pair in pairs:
+        if not groups or pair[0][0]-groups[-1][-1][0][1]>.6:groups.append([])
+        groups[-1].append(pair)
+    if len(groups)<2 or any(len(group)<3 for group in groups):
+        raise ValueError('Frasi insufficienti per una correzione locale affidabile.')
+    anchors=[];errors=[];unusual=0;local_scales=[]
+    for group in groups:
+        sample=group[::max(1,math.ceil(len(group)/100))]
+        slopes=[(h[0]-g[0])/(p[0]-o[0]) for i,(o,g) in enumerate(sample) for p,h in sample[i+1:] if p[0]-o[0]>1]
+        scale=statistics.median(slopes) if len(group)>=6 and len(slopes)>=3 else 1.
+        if not .85<=scale<=1.18:raise ValueError('La frase richiede una variazione di tempo eccessiva.')
+        offset=statistics.median(g[0]-scale*o[0] for o,g in group)
+        errors.extend(abs((g[0]-offset)/scale-o[0]) for o,g in group)
+        if not .97<=scale<=1.03:unusual+=len(group)
+        a,b=group[0][0][0]-.12,group[-1][0][1]+.12
+        anchors.extend([{'source':scale*a+offset,'target':a},{'source':scale*b+offset,'target':b}])
+        local_scales.append(scale)
+    if unusual>len(pairs)*.2:raise ValueError('La variazione di tempo coinvolge troppe frasi del canto.')
+    rates=[]
+    for a,b in zip(anchors,anchors[1:]):
+        if b['target']<=a['target'] or b['source']<=a['source']:raise ValueError('Frasi vocali sovrapposte o non ordinate.')
+        rates.append((b['source']-a['source'])/(b['target']-a['target']))
+    stats=timing_stats(errors)
+    if any(not .85<=rate<=1.18 for rate in rates) or stats['p90_onset_error_seconds']>.15 or stats['max_onset_error_seconds']>.45:
+        raise ValueError('La correzione locale non è sufficientemente affidabile.')
+    _,variations=phrase_coverage(original,pairs,allow_minor)
+    result={'original_notes':len(original),'generated_notes':len(generated),'matching_notes':len(pairs),
+            'vocal_delay_seconds':statistics.median(g[0]-o[0] for o,g in pairs),
+            'method':'SheetSage2 localized tempo alignment; pitch-preserving phrase correction',
+            'phrases':len(groups),'anchors':anchors,'local_tempo_scales':local_scales,
+            'global_tempo_scale':global_scale,'min_gap_tempo':min(rates),'max_gap_tempo':max(rates),
+            'predicted_corrected_timing':stats,**stats}
+    if variations:result['minor_melodic_variations']=variations
+    return result
+
+
 def alignment(original, generated, allow_phrases=True, verification=False, allow_minor=False):
     try:primary=phrase_alignment(original,generated,allow_phrases=allow_phrases,verification=verification,allow_minor=allow_minor)
     except ValueError as original_error:
@@ -307,7 +361,9 @@ def alignment(original, generated, allow_phrases=True, verification=False, allow
         # another correction that would make its own timing test pass.
         if not allow_phrases or verification:raise
         try:return tempo_alignment(original,generated,allow_minor=allow_minor)
-        except ValueError:raise original_error
+        except ValueError:
+            try:return localized_tempo_alignment(original,generated,allow_minor=allow_minor)
+            except ValueError:raise original_error
     # A passing constant offset can still leave an audible progressive drift.
     # Verification only measures the rendered result, never a new correction.
     if (allow_phrases and not verification and 'anchors' not in primary and
@@ -469,7 +525,7 @@ def process(app, job, d):
             report['verification_source'] = 'original-backing-mix'
         except ValueError as error:
             mixed_error = str(error)
-        if mixed_error or any(report.get(k) or (verified or {}).get(k) for k in ('minor_melodic_variations','minor_timing_variations')):
+        if mixed_error or report.get('local_tempo_scales') or any(report.get(k) or (verified or {}).get(k) for k in ('minor_melodic_variations','minor_timing_variations')):
             # In a dense mix SheetSage2 sometimes tags an entire sung refrain as
             # instrumental. Recheck the actual replacement voice alone, with
             # the same pitch, phrase coverage and timing requirements. Never
