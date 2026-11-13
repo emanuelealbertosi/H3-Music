@@ -6,9 +6,9 @@ nello Studio con intensità 0–1. Non si sommano alle CNZN e non garantiscono
 la fedeltà delle parole cantate. [Uso e provenienza](docs/Particle-v2.md).
 
 **Coro e piccoli dettagli melodici:** in **Base originale**, **Accetta piccole
-variazioni del canto** completa il brano con un avviso per brevissimi frammenti
+variazioni del canto** completa il brano con un avviso per brevi passaggi
 parzialmente riconosciuti, verificando il risultato sulla nuova voce isolata.
-Frasi interamente mancanti e tempi errati continuano a fermare il lavoro.
+Frasi interamente mancanti e problemi seri di tempo continuano a fermare il lavoro.
 Disattiva l'opzione per mantenere il controllo severo. I LoRA conservano le
 impostazioni originali. [Criteri e prova sul caso Coro](docs/Coro-e-allineamento.md).
 

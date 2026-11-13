@@ -76,6 +76,30 @@ class ResingingTests(unittest.TestCase):
   original,matched=self.minor_example()
   # Even a very long well-recognized neighbor must not hide an absent cadence.
   with self.assertRaises(ValueError):resinging.phrase_coverage(original,matched[:-1],allow_minor=True)
+ def short_partial_example(self, count=3, span=2.4):
+  phrase=[(i*.3,i*.3+.25,60+i%5) for i in range(12)]
+  fragment=[(4.5+i*span/6,4.5+(i+1)*span/6-.01,80+i) for i in range(6)]
+  original=phrase+fragment;matched=[(n,n) for n in phrase+fragment[:count]]
+  return original,matched
+ def test_tolerant_mode_accepts_half_recognized_short_phrase_with_warning(self):
+  for count in (3,4):
+   original,matched=self.short_partial_example(count)
+   with self.assertRaises(ValueError):resinging.phrase_coverage(original,matched)
+   groups,variations=resinging.phrase_coverage(original,matched,allow_minor=True)
+   self.assertEqual(groups,[original])
+   self.assertEqual(variations[0]['different_notes'],6-count)
+   self.assertEqual(sum(map(len,groups)),len(original))
+ def test_tolerant_mode_rejects_missing_low_coverage_or_long_phrase(self):
+  for count,span in ((0,2.4),(2,2.4),(3,3.1)):
+   original,matched=self.short_partial_example(count,span)
+   with self.subTest(count=count,span=span),self.assertRaises(ValueError):
+    resinging.phrase_coverage(original,matched,allow_minor=True)
+ def test_tolerant_mode_requires_reliable_nearby_context(self):
+  original,matched=self.short_partial_example()
+  distant=original[:12]+[(a+2,b+2,p) for a,b,p in original[12:]]
+  recognized=distant[:12]+distant[12:15]
+  with self.assertRaises(ValueError):resinging.phrase_coverage(distant,[(n,n) for n in recognized],allow_minor=True)
+  with self.assertRaises(ValueError):resinging.phrase_coverage(original,matched[6:],allow_minor=True)
  def test_minor_mode_keeps_independent_long_and_distant_fragments_strict(self):
   original,matched=self.minor_example()
   for changed in ([*original[:6],*[(a+2,b+2,p) for a,b,p in original[6:]]],
@@ -87,6 +111,29 @@ class ResingingTests(unittest.TestCase):
   notes=[(i*.4,i*.4+.3,60+i%5) for i in range(30)]
   self.assertEqual(resinging.alignment(notes,notes),resinging.alignment(notes,notes,allow_minor=True))
   with self.assertRaises(ValueError):resinging.alignment(notes,[(a,b,p+12) for a,b,p in notes],allow_minor=True)
+ def test_tolerant_timing_accepts_isolated_outlier_with_warning_only(self):
+  notes=[(i,i+.2,50+i) for i in range(40)]
+  generated=[(a+(.7 if i==10 else 0),b+(.7 if i==10 else 0),p) for i,(a,b,p) in enumerate(notes)]
+  with self.assertRaises(ValueError):resinging.alignment(notes,generated,allow_phrases=False,verification=True)
+  report=resinging.alignment(notes,generated,allow_phrases=False,verification=True,allow_minor=True)
+  self.assertEqual(len(report['minor_timing_variations']),1)
+  self.assertAlmostEqual(report['minor_timing_variations'][0]['start'],10)
+  changes=[.3 if i%3==0 else 0 for i in range(40)]
+  bad=[(a+changes[i],b+changes[i],p) for i,(a,b,p) in enumerate(notes)]
+  with self.assertRaises(ValueError):resinging.alignment(notes,bad,allow_phrases=False,verification=True,allow_minor=True)
+ def test_local_octave_compatibility_keeps_timing_and_rejects_global_changes(self):
+  notes=[(i,i+.2,50+i) for i in range(40)]
+  generated=[(a,b,p+12 if i in (10,11) else p) for i,(a,b,p) in enumerate(notes)]
+  adjusted,changes=resinging.octave_compatible_notes(notes,generated)
+  self.assertEqual(adjusted,notes);self.assertEqual(len(changes),2)
+  self.assertEqual([(a,b) for a,b,p in adjusted],[(a,b) for a,b,p in generated])
+  with self.assertRaises(ValueError):resinging.octave_compatible_notes(notes,[(a,b,p+12) for a,b,p in notes])
+  # Other pitch classes and missing notes cannot be manufactured by this fallback.
+  wrong=[(a,b,p+1) for a,b,p in notes]
+  self.assertEqual(resinging.octave_compatible_notes(notes,wrong),(wrong,[]))
+  self.assertEqual(resinging.octave_compatible_notes(notes,[]),([],[]))
+  bad=[(a+(1 if i==10 else 0),b+(1 if i==10 else 0),p) for i,(a,b,p) in enumerate(notes)]
+  with self.assertRaises(ValueError):resinging.alignment(notes,bad,allow_phrases=False,verification=True,allow_minor=True)
  def test_minor_option_is_saved_and_accepts_only_booleans(self):
   self.assertTrue(app.validate(self.req)['base_allow_minor_variations'])
   self.assertFalse(app.validate(self.req|{'base_allow_minor_variations':False})['base_allow_minor_variations'])

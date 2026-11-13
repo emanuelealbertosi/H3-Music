@@ -127,9 +127,13 @@ def phrase_coverage(original, matched, allow_minor=False):
             phrase = original_phrases[index]
             count = sum(note in recognized for note in phrase)
             duration = max(note[1] for note in phrase)-phrase[0][0]
-            # Keep tiny, partly recognized cadences with their surrounding phrase.
+            # Keep partly recognized short phrases with reliable nearby singing.
+            # Preserve the previous tiny-cadence rule, and allow up to three
+            # different notes over three seconds when at least half are matched.
             # All notes still count. Complete missing fragments are never rescued.
-            if 3 <= len(phrase) <= 4 and 0 < count < .7*len(phrase) and len(phrase)-count <= 2 and duration <= .9:
+            tiny = 3 <= len(phrase) <= 4 and count > 0 and len(phrase)-count <= 2 and duration <= .9
+            short = 3 <= len(phrase) <= 8 and count/len(phrase) >= .5 and len(phrase)-count <= 3 and duration <= 3
+            if 0 < count < .7*len(phrase) and (tiny or short):
                 candidates = []
                 for neighbor in (index-1, index+1):
                     if not 0 <= neighbor < len(original_phrases): continue
@@ -164,6 +168,29 @@ def check_phrase_coverage(original, matched, allow_minor=False):
     return phrase_coverage(original, matched, allow_minor)[0]
 
 
+def octave_compatible_notes(original, generated):
+    """Treat sparse local octave differences as compatible in final verification.
+
+    Only an existing note near the expected onset may change its comparison
+    pitch. Audio, timing and pitch classes never change. A global octave shift
+    or more than ten percent of the recognized notes is not rescued here.
+    """
+    adjusted = []
+    changes = []
+    for note in generated:
+        nearby = [n for n in original if abs(n[0]-note[0]) <= .65]
+        candidates = [] if any(n[2] == note[2] for n in nearby) else [n for n in nearby if abs(n[2]-note[2]) == 12]
+        if candidates:
+            source = min(candidates, key=lambda n:abs(n[0]-note[0]))
+            adjusted.append((note[0],note[1],source[2]))
+            changes.append({'start':note[0], 'end':note[1], 'from_midi':note[2], 'to_midi':source[2]})
+        else:
+            adjusted.append(note)
+    if len(changes) > len(generated)*.1:
+        raise ValueError('Troppe note riconosciute in un’ottava diversa per il controllo tollerante.')
+    return adjusted, changes
+
+
 def generation_options(app, options, original_notes):
     """Keep a score-driven replacement alive through the last original vocal note.
 
@@ -196,7 +223,10 @@ def phrase_alignment(original, generated, allow_phrases=True, verification=False
     report = {'original_notes': len(original), 'generated_notes': len(generated), 'matching_notes': len(matched),
               'vocal_delay_seconds': delay, **stats, 'method': 'SheetSage2 note recognition; constant delay only'}
     if variations: report['minor_melodic_variations'] = variations
-    constant_ok = abs(delay) <= 2.5 and stats['p90_onset_error_seconds'] <= .2 and stats['max_onset_error_seconds'] <= .65
+    if allow_minor and stats['max_onset_error_seconds'] > .65:
+        report['minor_timing_variations'] = [{'start':o[0], 'end':o[1], 'error_seconds':abs(g[0]-o[0]-delay)}
+                                              for o,g in matched if abs(g[0]-o[0]-delay) > .65]
+    constant_ok = abs(delay) <= 2.5 and stats['p90_onset_error_seconds'] <= .2 and stats['max_onset_error_seconds'] <= (.75 if allow_minor else .65)
     if constant_ok and (not allow_phrases or stats['p90_onset_error_seconds'] <= .08):
         return report
     message = 'Il nuovo canto cambia troppo ritmo rispetto alla base. Non è stato possibile riallinearlo senza distorsioni: prova un testo più vicino alla metrica originale.'
@@ -255,12 +285,15 @@ def tempo_alignment(original, generated, allow_minor=False):
                 continue
             phrases,variations=phrase_coverage(original,pairs,allow_minor)
             stats=timing_stats(abs((g[0]-offset)/scale-o[0]) for o,g in pairs)
-            if stats['p90_onset_error_seconds']>.15 or stats['max_onset_error_seconds']>.45:continue
+            if stats['p90_onset_error_seconds']>.15 or stats['max_onset_error_seconds']>(.65 if allow_minor else .45):continue
             candidates.append({'original_notes':len(original),'generated_notes':len(generated),'matching_notes':len(pairs),
                 'vocal_delay_seconds':offset,'tempo_scale':scale,'voice_tempo_change_percent':(scale-1)*100,
                 'method':'SheetSage2 bounded tempo alignment; pitch-preserving voice correction',
                 'phrases':len(phrases),'predicted_corrected_timing':stats,**stats})
             if variations:candidates[-1]['minor_melodic_variations']=variations
+            if allow_minor and stats['max_onset_error_seconds']>.45:
+                candidates[-1]['minor_timing_variations']=[{'start':o[0], 'end':o[1], 'error_seconds':abs((g[0]-offset)/scale-o[0])}
+                                                          for o,g in pairs if abs((g[0]-offset)/scale-o[0])>.45]
         except ValueError:continue
     if not candidates:raise ValueError('Il tempo del nuovo canto non è correggibile con sufficiente affidabilità.')
     return max(candidates,key=lambda r:(r['matching_notes'],-r['p90_onset_error_seconds']))
@@ -400,7 +433,7 @@ def process(app, job, d):
         separate(generated/'audio.wav', fresh_stems, 'Estrazione del nuovo canto', 75)
     aligned = d/'new-singing.wav'
     render_aligned_voice(app,fresh_stems/'vocals.wav',aligned,report,duration,generated_duration,ff)
-    if 'anchors' in report or 'tempo_scale' in report or report.get('minor_melodic_variations'):
+    if 'anchors' in report or 'tempo_scale' in report or report.get('minor_melodic_variations') or report.get('minor_timing_variations'):
         verification = d/'alignment-check.wav'
         inputs = ['-i',aligned]
         for name in ('drums','bass','other'): inputs += ['-i',stems/(name+'.wav')]
@@ -421,18 +454,29 @@ def process(app, job, d):
             report['verification_source'] = 'original-backing-mix'
         except ValueError as error:
             mixed_error = str(error)
-        if mixed_error or report.get('minor_melodic_variations') or (verified or {}).get('minor_melodic_variations'):
+        if mixed_error or any(report.get(k) or (verified or {}).get(k) for k in ('minor_melodic_variations','minor_timing_variations')):
             # In a dense mix SheetSage2 sometimes tags an entire sung refrain as
             # instrumental. Recheck the actual replacement voice alone, with
             # the same pitch, phrase coverage and timing requirements. Never
             # rescue a missing voice by matching the unchanged accompaniment.
             isolated = transcribe(aligned,d/'aligned-vocal-score',duration,'Ricontrollo della voce isolata',85)
-            verified = verify(isolated)
+            try:
+                verified = verify(isolated)
+            except ValueError as isolated_error:
+                if not req.get('base_allow_minor_variations',True):raise
+                normalized, octaves = octave_compatible_notes(original_notes,isolated)
+                if not octaves:raise isolated_error
+                verified = verify(normalized)
+                verified['octave_recognition_adjustments'] = octaves
+                report['octave_recognition_adjustments'] = octaves
+                report['verification_pitch_policy'] = 'sparse local octave compatibility; audio unchanged'
             report['verification_source'] = 'isolated-replacement-vocals'
             if mixed_error: report['mixed_verification_error'] = mixed_error
         report['verified_timing'] = verified
         if verified.get('minor_melodic_variations'):
             report['minor_melodic_variations'] = verified['minor_melodic_variations']
+        if verified.get('minor_timing_variations'):
+            report['minor_timing_variations'] = verified['minor_timing_variations']
         app.write_json(d/'alignment.json',report)
     fresh_voice = aligned
     if req.get('clone_enabled'):
